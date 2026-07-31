@@ -3,16 +3,17 @@
 from pathlib import Path
 import geopandas as gpd
 
-RAW_PATH = Path("data/raw/Tis_Junho2025/Tis_TerritoriosIndigenas.shp")
-OUT_PATH = Path("data/processed/territories.parquet")
+ROOT = Path(__file__).resolve().parents[1]
+RAW_PATH = ROOT / "data/raw/Tis_Junho2025/Tis_TerritoriosIndigenas.shp"
+OUT_PATH = ROOT / "data/processed/territories.parquet"
 
-# Scope filters, both taken directly from the project brief:
-# "legally recognized indigenous territories" -> LEGAL_STATUS
-# "across the Amazon basin"                   -> IN_AMAZON_BIOME
+# Scope filters.
+# IN_AMAZON_BIOME: outside the biome the polygons are mostly Andean peasant communities, where forest-loss alerts carry no signal.
+# LEGAL_STATUS: where recognition is pending or absent, the polygon reflects a claim rather than an enforceable boundary.
 IN_AMAZON_BIOME = "s"
 LEGAL_STATUS = "TI con reconocimiento oficial"
 
-# Polygons below this are digitizing slivers, not territories.
+# Polygons below this are digitising slivers, not territories.
 MIN_AREA_HA = 1.0
 
 KEY = "codigo_tis"
@@ -44,6 +45,11 @@ def build() -> gpd.GeoDataFrame:
     # One territory can be split across several polygons, so codigo_tis is not unique until we merge them.
     gdf = gdf.dissolve(by=KEY, aggfunc=AGG, as_index=False)
     print(f"after dissolve: {len(gdf)}")
+
+    dropped = gdf[gdf["area_sig_h"] < MIN_AREA_HA]
+    if len(dropped):
+        print(f"dropping {len(dropped)} polygons below {MIN_AREA_HA} ha:")
+        print(dropped[["codigo_tis", "nombre", "pais", "area_sig_h"]].to_string(index=False))
 
     gdf = gdf[gdf["area_sig_h"] >= MIN_AREA_HA].copy()
     print(f"after area filter: {len(gdf)}")
