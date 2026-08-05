@@ -19,19 +19,18 @@ Target output: a ranked table plus a map, showing which territories deserve atte
 | Stage | What it does | Status |
 |---|---|---|
 | 1. Territories | Download RAISG polygons, filter, clean, assign a primary key | Done |
-| 2. Geostores | Register each polygon with GFW once, store the returned ID | Not started |
+| 2. Geostores | Register each polygon with GFW once, store the returned ID | In progress |
 | 3. Alerts | Query GFW for high-confidence alerts, aggregated by territory and date | Not started |
 | 4. History | Accumulate the per-territory time series | Not started |
 | 5. Anomalies | Normalise by area, detect departures from each territory's baseline | Not started |
-| 6. Dashboard | Ranked table, time series, map, review state | Not started |
-
+| 6. Dashboard | Power BI report: ranked table, time series, bubble map, summary cards | Not started |
 
 ---
 
 ## Data sources
 
 | Source | What it provides | Format |
-|---|---|---|---|
+|---|---|---|
 | [RAISG](https://www.raisg.org/en/maps/), `Tis_TerritoriosIndigenas` | Indigenous territory boundaries, June 2025 release | Shapefile |
 | [GFW Data API](https://data-api.globalforestwatch.org/), `gfw_integrated_alerts` | Satellite deforestation alerts | JSON over HTTP |
 
@@ -45,7 +44,7 @@ Of the 7,466 polygons in the RAISG layer, 3,866 are used. Three filters narrow i
 
 **Officially recognised** (`leyenda == "TI con reconocimiento oficial"`). Where recognition is pending or absent, the polygon represents a claim rather than an enforceable boundary, and attributing forest loss to it would be unreliable.
 
-**At least 1 hectare.** This one excludes territories that pass both filters above, so it needs its own justification. An integrated alert pixel covers between 0.01 ha and 0.09 ha depending on the product. Nine polygons in the biome fall below one hectare; three survive the other filters, measuring 0 ha, 0.000011 ha (about 0.11 square metres) and 0.87 ha. They are digitising artefacts in the source data, not places. The script prints them by name and country when it drops them, so the exclusion stays auditable.
+**At least 1 hectare.** This one excludes territories that pass both filters above, so it needs its own justification. An integrated alert pixel covers 0.01 ha at 10 m resolution. Nine polygons in the biome fall below one hectare; three survive the other filters, measuring 0 ha, 0.000011 ha (about 0.11 square metres) and 0.87 ha. They are digitising artefacts in the source data, not places. The script prints them by name and country when it drops them, so the exclusion stays auditable.
 
 ```
 raw polygons: 7466
@@ -65,12 +64,11 @@ None of the three candidate ID columns is unique in the raw layer: `codigo_tis` 
 
 Inspecting the duplicates showed that most are single territories split across several polygons. Cuyabeno-Imuya in Ecuador appears seven times: two rows with real area and five slivers. The two genuine conflicts, both in Venezuela, fall outside the legal-recognition filter on their own.
 
-So the polygons are dissolved by `codigo_tis` with areas summed, after which the key is umique and asserted as such. This matters more than it looks: stage 4 merges daily alert counts against a stored history, and a duplicated key would multiply rows on every merge and inflate the counts without raising an error.
+So the polygons are dissolved by `codigo_tis` with areas summed, after which the key is unique and asserted as such. This matters more than it looks: stage 4 merges daily alert counts against a stored history, and a duplicated key would multiply rows on every merge and inflate the counts without raising an error.
 
 ### Why alert counts get normalised by area
 
-Areas are heavily right-skewed. Inside the biome the median territory covers 4,192 ha and the mean covers 53,147 ha, a factor of thirteen, with the largest at 9,537,676 ha. Ranking by raw alert count would return the same handful of
-giants every time and would never surface a 1,300 ha territory losing a significant share of its forest in a week.
+Areas are heavily right-skewed. Inside the biome the median territory covers 4,192 ha and the mean covers 53,147 ha, a factor of thirteen, with the largest at 9,537,676 ha. Ranking by raw alert count would return the same handful of giants every time and would never surface a 1,300 ha territory losing a significant share of its forest in a week.
 
 ---
 
@@ -100,7 +98,7 @@ giants every time and would never surface a 1,300 ha territory losing a signific
 
 **Alerts get revised.** GFW reclassifies alerts as confidence improves, so each refresh has to re-query a trailing window and overwrite rather than simply append.
 
-**Geometry detail is high.** 58 MB for 3,866 polygons is good for spatial queries and too heavy for a browser map. A simplified copy will be needed for the dashboard only.
+**Geometry detail is high.** 58 MB for 3,866 polygons is good for spatial queries and too heavy for any interactive map. Power BI does not render custom polygons easily, so the dashboard uses territory centroids as a bubble map instead.
 
 **An alert is not a verified event.** This is a screening tool for prioritisation, not a substitute for ground verification.
 
@@ -110,4 +108,4 @@ giants every time and would never surface a 1,300 ha territory losing a signific
 
 Territory boundaries: RAISG (Red Amazónica de Información Socioambiental Georreferenciada), <https://www.raisg.org>. Attribution is required by their terms of use.
 
-Deforestation alerts: Global Forest Watch / World Resources Institute, using GLAD (University of Maryland) and RADD (Wageningen University) products.
+Deforestation alerts: Global Forest Watch / World Resources Institute.
