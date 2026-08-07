@@ -19,8 +19,8 @@ Target output: a ranked table plus a map, showing which territories deserve atte
 | Stage | What it does | Status |
 |---|---|---|
 | 1. Territories | Download RAISG polygons, filter, clean, assign a primary key | Done |
-| 2. Geostores | Register each polygon with GFW once, store the returned ID | In progress |
-| 3. Alerts | Query GFW for high-confidence alerts, aggregated by territory and date | Not started |
+| 2. Geostores | Register each polygon with GFW once, store the returned ID | Done |
+| 3. Alerts | Query GFW for high-confidence alerts, aggregated by territory and date | In progress |
 | 4. History | Accumulate the per-territory time series | Not started |
 | 5. Anomalies | Normalise by area, detect departures from each territory's baseline | Not started |
 | 6. Dashboard | Power BI report: ranked table, time series, bubble map, summary cards | Not started |
@@ -66,6 +66,14 @@ Inspecting the duplicates showed that most are single territories split across s
 
 So the polygons are dissolved by `codigo_tis` with areas summed, after which the key is unique and asserted as such. This matters more than it looks: stage 4 merges daily alert counts against a stored history, and a duplicated key would multiply rows on every merge and inflate the counts without raising an error.
 
+### Geostores
+
+The query endpoint takes a geometry, but territory polygons are too large to resend on every request. GFW provides a geostore endpoint: upload a geometry once, get back an ID, then query by ID from then on.
+
+The concern was whether the largest polygons would be accepted. Yanomami serialises to 2.4 MB of GeoJSON and was accepted as-is, so no simplification is needed anywhere and territory boundaries stay exact. That matters: simplifying moves the boundary, which would mean counting alerts that fall outside it.
+
+Registration runs sequentially, roughly 80 minutes for all 3,866 territories. Parallelising was considered and rejected: this is a one-off run and the extra complexity is not worth 80 minutes. Each row is written as it goes, so an interrupted run resumes where it stopped.
+
 ### Why alert counts get normalised by area
 
 Areas are heavily right-skewed. Inside the biome the median territory covers 4,192 ha and the mean covers 53,147 ha, a factor of thirteen, with the largest at 9,537,676 ha. Ranking by raw alert count would return the same handful of giants every time and would never surface a 1,300 ha territory losing a significant share of its forest in a week.
@@ -76,10 +84,13 @@ Areas are heavily right-skewed. Inside the biome the median territory covers 4,1
 
 ```
 .
+├── README.md
 ├── src/
-│   └── build_territories.py     # stage 1: raw shapefile to working dataset
+│   ├── build_territories.py     # stage 1: raw shapefile to working dataset
+│   └── create_geostores.py      # stage 2: register geometries with GFW
 ├── notebooks/
-│   └── 01_explore_territories.ipynb   # exploration behind the scope decisions
+│   ├── 01_explore_territories.ipynb   # scope decisions
+│   └── 02_geostores.ipynb             # geometry size and timing checks
 ├── data/                        # not committed
 │   ├── raw/
 │   └── processed/
@@ -90,7 +101,7 @@ Areas are heavily right-skewed. Inside the biome the median territory covers 4,1
 
 ## Known limitations
 
-**Not real time.** GLAD alerts are published once a day, and there is a further lag between clearing happening on the ground and a satellite detecting it, depending on cloud cover. Daily batch is the closest achievable approximation.
+**Not real time.** Integrated alerts are published once a day, and there is a further lag between clearing happening on the ground and a satellite detecting it, depending on cloud cover.
 
 **Small territories will be hard to model.** 730 territories, roughly 19% of the working set, are under 1,000 ha. Their daily alert series will be mostly zeros, and a percentile computed over a series of zeros means nothing. Stage 5 will need to treat them differently.
 
