@@ -23,16 +23,18 @@ WORKERS = 8
 TIMEOUT = 180
 MAX_RETRIES = 3
 
-# The dialect rejects IN, hence chained OR.
+# Confidence is stored, not filtered. Alerts take three to four months
+# to mature from nominal to high, so filtering would capture a shrinking
+# share of alerts the more recent the data, making periods incomparable.
+
 SQL = (
     "SELECT gfw_integrated_alerts__date AS date, "
+    "gfw_integrated_alerts__confidence AS confidence, "
     "SUM(area__ha) AS area_ha, "
     "COUNT(*) "
     "FROM results "
     f"WHERE gfw_integrated_alerts__date >= '{START_DATE}' "
-    "AND (gfw_integrated_alerts__confidence = 'high' "
-    "OR gfw_integrated_alerts__confidence = 'highest') "
-    "GROUP BY gfw_integrated_alerts__date "
+    "GROUP BY gfw_integrated_alerts__date, gfw_integrated_alerts__confidence "
     "ORDER BY gfw_integrated_alerts__date"
 )
 
@@ -98,7 +100,7 @@ def main() -> None:
     done_fh = DONE_PATH.open("a", encoding="utf-8")
 
     if write_alerts_header:
-        alerts_fh.write("territory_id,date,area_ha,alerts\n")
+        alerts_fh.write("territory_id,date,confidence,area_ha,alerts\n")
     if write_done_header:
         done_fh.write("territory_id\n")
 
@@ -123,7 +125,8 @@ def main() -> None:
                 with write_lock:
                     for _, r in df.iterrows():
                         alerts_fh.write(
-                            f"{territory_id},{r['date']},{r['area_ha']},{r['count']}\n"
+                            f"{territory_id},{r['date']},{r['confidence']},"
+                            f"{r['area_ha']},{r['count']}\n"
                         )
                     # Recorded even when empty, so a territory with no alerts is not retried on the next run.
                     done_fh.write(f"{territory_id}\n")
