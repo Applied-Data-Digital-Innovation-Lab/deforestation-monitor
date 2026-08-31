@@ -1,0 +1,31 @@
+name: daily update
+
+on:
+  schedule:
+    # 09:00 UTC, after GFW has published the day's alerts
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Fetch recent alerts
+        run: python src/fetch_alerts.py
+        env:
+          GFW_API_KEY: ${{ secrets.GFW_API_KEY }}
+          NEON_URL: ${{ secrets.NEON_URL }}
+
+      - name: Rank territories
+        run: python src/detect_anomalies.py
+        env:
+          NEON_URL: ${{ secrets.NEON_URL }}
