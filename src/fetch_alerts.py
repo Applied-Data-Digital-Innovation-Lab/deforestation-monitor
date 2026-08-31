@@ -8,6 +8,10 @@ from pathlib import Path
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+import argparse
+from datetime import date, timedelta
+from sqlalchemy import bindparam, text
+from db import engine
 
 ROOT = Path(__file__).resolve().parents[1]
 GEOSTORES = ROOT / "data/processed/geostores.csv"
@@ -18,25 +22,26 @@ DATASET = "gfw_integrated_alerts"
 VERSION = "v20260801"
 BASE = f"https://data-api.globalforestwatch.org/dataset/{DATASET}/{VERSION}/query/json"
 
-START_DATE = "2024-08-01"
+BACKFILL_START = "2024-08-01"
 WORKERS = 8
 TIMEOUT = 180
 MAX_RETRIES = 3
+REFRESH_DAYS = 30
 
-# Confidence is stored, not filtered. Alerts take three to four months
-# to mature from nominal to high, so filtering would capture a shrinking
-# share of alerts the more recent the data, making periods incomparable.
-
-SQL = (
-    "SELECT gfw_integrated_alerts__date AS date, "
-    "gfw_integrated_alerts__confidence AS confidence, "
-    "SUM(area__ha) AS area_ha, "
-    "COUNT(*) "
-    "FROM results "
-    f"WHERE gfw_integrated_alerts__date >= '{START_DATE}' "
-    "GROUP BY gfw_integrated_alerts__date, gfw_integrated_alerts__confidence "
-    "ORDER BY gfw_integrated_alerts__date"
-)
+def build_sql(start_date: str) -> str:
+    # Confidence is stored, not filtered. Alerts take three to four months
+    # to mature from nominal to high, so filtering would capture a shrinking
+    # share of alerts the more recent the data, making periods incomparable.
+    return (
+        "SELECT gfw_integrated_alerts__date AS date, "
+        "gfw_integrated_alerts__confidence AS confidence, "
+        "SUM(area__ha) AS area_ha, "
+        "COUNT(*) "
+        "FROM results "
+        f"WHERE gfw_integrated_alerts__date >= '{start_date}' "
+        "GROUP BY gfw_integrated_alerts__date, gfw_integrated_alerts__confidence "
+        "ORDER BY gfw_integrated_alerts__date"
+    )
 
 load_dotenv(ROOT / ".env")
 API_KEY = os.getenv("GFW_API_KEY")
@@ -44,7 +49,7 @@ API_KEY = os.getenv("GFW_API_KEY")
 write_lock = threading.Lock()
 
 
-def fetch(geostore_id: str) -> pd.DataFrame:
+def fetch(geostore_id: str, sql: str) -> pd.DataFrame:
     """Query one territory, retrying on server errors."""
     for attempt in range(MAX_RETRIES):
         try:
@@ -52,7 +57,7 @@ def fetch(geostore_id: str) -> pd.DataFrame:
                 BASE,
                 headers={"x-api-key": API_KEY},
                 params={
-                    "sql": SQL,
+                    "sql": sql,
                     "geostore_id": geostore_id,
                     "geostore_origin": "rw",
                 },
@@ -75,12 +80,78 @@ def already_done() -> set:
         return set()
     return set(pd.read_csv(DONE_PATH)["territory_id"])
 
+def refresh_recent(geostores: pd.DataFrame, start_date: str) -> None:
+    """Re-query the most recent weeks and replace those rows in Neon.
 
-def main() -> None:
-    if not API_KEY:
-        raise SystemExit("GFW_API_KEY not found in .env")
+    Alerts are revised as confidence improves and late detections appear for
+    past dates, so the recent window has to be overwritten rather than
+    appended to.
+    """
+    sql = build_sql(start_date)
+    rows, failures = [], []
 
-    geostores = pd.read_csv(GEOSTORES)
+    def work(territory_id, geostore_id):
+        return territory_id, fetch(geostore_id, sql)
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {
+            pool.submit(work, r["territory_id"], r["geostore_id"]): r["territory_id"]
+            for _, r in geostores.iterrows()
+        }
+        for n, future in enumerate(as_completed(futures), start=1):
+            territory_id = futures[future]
+            try:
+                territory_id, df = future.result()
+            except RuntimeError as exc:
+                failures.append((territory_id, str(exc)))
+                continue
+            for _, r in df.iterrows():
+                rows.append({
+                    "territory_id": territory_id,
+                    "date": r["date"],
+                    "confidence": r["confidence"],
+                    "area_ha": r["area_ha"],
+                    "alerts": r["count"],
+                })
+            if n % 500 == 0:
+                print(f"{n}/{len(geostores)}")
+
+    if not rows:
+        print("nothing fetched, leaving the database untouched")
+        return
+
+    fresh = pd.DataFrame(rows)
+    fresh["date"] = pd.to_datetime(fresh["date"])
+
+    eng = engine()
+    # Only the territories that came back are cleared. A failed fetch has to
+    # leave its existing rows alone, otherwise a network error deletes data.
+    fetched = fresh["territory_id"].unique()
+
+    stmt = text(
+        "DELETE FROM alerts_daily "
+        "WHERE date >= :start AND territory_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+
+    with eng.begin() as conn:
+        deleted = conn.execute(
+            stmt, {"start": start_date, "ids": [int(t) for t in fetched]}
+        ).rowcount
+
+    fresh.to_sql("alerts_daily", eng, if_exists="append", index=False,
+                 chunksize=5000, method="multi")
+
+    with eng.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM alerts_daily")).scalar()
+
+    print(f"\nreplaced {deleted:,} rows with {len(fresh):,}")
+    print(f"{total:,} rows total, {len(failures)} failures")
+    for f in failures[:10]:
+        print(" ", f)
+
+def backfill(geostores: pd.DataFrame) -> None:
+    """Fetch the full history for every territory, resuming if interrupted."""
+
     done = already_done()
     pending = geostores[~geostores["territory_id"].isin(done)]
 
@@ -104,8 +175,10 @@ def main() -> None:
     if write_done_header:
         done_fh.write("territory_id\n")
 
+    sql = build_sql(BACKFILL_START)
+
     def work(territory_id: int, geostore_id: str):
-        return territory_id, fetch(geostore_id)
+        return territory_id, fetch(geostore_id, sql)
 
     try:
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:
@@ -152,6 +225,25 @@ def main() -> None:
     for f in failures[:20]:
         print(" ", f)
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--backfill", action="store_true",
+        help="fetch the full history from scratch instead of the recent window",
+    )
+    args = parser.parse_args()
+
+    if not API_KEY:
+        raise SystemExit("GFW_API_KEY not found in .env")
+
+    geostores = pd.read_sql("SELECT territory_id, geostore_id FROM geostores", engine())
+
+    if args.backfill:
+        backfill(geostores)
+    else:
+        start = (date.today() - timedelta(days=REFRESH_DAYS)).isoformat()
+        print(f"refreshing from {start} ({len(geostores)} territories)")
+        refresh_recent(geostores, start)
 
 if __name__ == "__main__":
     main()
