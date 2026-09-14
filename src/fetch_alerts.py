@@ -19,14 +19,28 @@ ALERTS_PATH = ROOT / "data/processed/alerts_daily.csv"
 DONE_PATH = ROOT / "data/processed/alerts_done.csv"
 
 DATASET = "gfw_integrated_alerts"
-VERSION = "v20260801"
-BASE = f"https://data-api.globalforestwatch.org/dataset/{DATASET}/{VERSION}/query/json"
-
+DATASET_URL = f"https://data-api.globalforestwatch.org/dataset/{DATASET}"
+BACKFILL_VERSION = "v20260801" # The version used for the two-year backfill, kept fixed so the history comes from one coherent snapshot.
 BACKFILL_START = "2024-08-01"
 WORKERS = 8
 TIMEOUT = 180
 MAX_RETRIES = 3
 REFRESH_DAYS = 30
+
+def query_url(version: str) -> str:
+    return f"{DATASET_URL}/{version}/query/json"
+
+
+def latest_version() -> str:
+    """Resolve the newest published version at run time.
+
+    GFW publishes a new version daily. A pinned version stops receiving data
+    once the next one appears, so the daily refresh keeps succeeding while
+    quietly fetching nothing new.
+    """
+    r = requests.get(DATASET_URL, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.json()["data"]["versions"][-1]
 
 def build_sql(start_date: str) -> str:
     # Confidence is stored, not filtered. Alerts take three to four months
@@ -49,12 +63,12 @@ API_KEY = os.getenv("GFW_API_KEY")
 write_lock = threading.Lock()
 
 
-def fetch(geostore_id: str, sql: str) -> pd.DataFrame:
+def fetch(geostore_id: str, sql: str, url: str) -> pd.DataFrame:
     """Query one territory, retrying on server errors."""
     for attempt in range(MAX_RETRIES):
         try:
             r = requests.get(
-                BASE,
+                url,
                 headers={"x-api-key": API_KEY},
                 params={
                     "sql": sql,
@@ -87,11 +101,15 @@ def refresh_recent(geostores: pd.DataFrame, start_date: str) -> None:
     past dates, so the recent window has to be overwritten rather than
     appended to.
     """
+    version = latest_version()
+    url = query_url(version)
+    print(f"using dataset version {version}")
+
     sql = build_sql(start_date)
     rows, failures = [], []
 
     def work(territory_id, geostore_id):
-        return territory_id, fetch(geostore_id, sql)
+        return territory_id, fetch(geostore_id, sql, url)
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         futures = {
@@ -176,9 +194,10 @@ def backfill(geostores: pd.DataFrame) -> None:
         done_fh.write("territory_id\n")
 
     sql = build_sql(BACKFILL_START)
+    url = query_url(BACKFILL_VERSION)
 
     def work(territory_id: int, geostore_id: str):
-        return territory_id, fetch(geostore_id, sql)
+        return territory_id, fetch(geostore_id, sql, url)
 
     try:
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:
