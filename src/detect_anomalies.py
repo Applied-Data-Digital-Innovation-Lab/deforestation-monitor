@@ -94,13 +94,13 @@ def seasonal_baselines(history: pd.DataFrame, target_woy: int) -> pd.DataFrame:
     return baseline.join(active)
 
 
-def current_window(alerts: pd.DataFrame, territories: pd.DataFrame):
-    """Use the most recent seven days of data, regardless of the weekday."""
-    last_date = alerts["date"].max()
+def current_window(alerts: pd.DataFrame, territories: pd.DataFrame, window_end=None):
+    """Use the seven days ending on the given date, or on the latest data."""
+    last_date = pd.Timestamp(window_end) if window_end is not None else alerts["date"].max()
     start = last_date - pd.Timedelta(days=WINDOW_DAYS - 1)
 
     lost = (
-        alerts[alerts["date"] >= start]
+        alerts[(alerts["date"] >= start) & (alerts["date"] <= last_date)]
         .groupby("territory_id")["area_ha"].sum()
     )
 
@@ -119,8 +119,9 @@ def score(
     weekly: pd.DataFrame,
     alerts: pd.DataFrame,
     territories: pd.DataFrame,
+    window_end=None,
 ) -> pd.DataFrame:
-    current, last_date, start = current_window(alerts, territories)
+    current, last_date, start = current_window(alerts, territories, window_end)
     target_woy = int(pd.Timestamp(last_date).isocalendar().week)
 
     # Leave the current window out of the history. Otherwise, an unusually
