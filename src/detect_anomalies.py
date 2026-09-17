@@ -18,6 +18,7 @@ MIN_ACTIVE_WEEKS = 20      # below this, there is not enough history for a usefu
 MIN_LOST_HA = 5.0          # a spike of two hectares is probably not worth a field trip
 MIN_RATIO = 2.0            # how far above its own baseline a territory must be to be flagged
 WINDOW_DAYS = 7
+SETTLED_AFTER_WEEKS = 20   # below this, the baseline rests on too little history
 
 
 def load() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -185,8 +186,6 @@ def main() -> None:
     )
     print(f"\nwrote {len(result):,} rows to rankings")
 
-    # The web page needs this for the per-territory history chart, and the
-    # weekly series is already computed above.
     weekly[["territory_id", "week", "area_ha", "lost_per_1000ha"]].rename(
         columns={"area_ha": "lost_ha"}
     ).to_sql(
@@ -194,6 +193,35 @@ def main() -> None:
         chunksize=5000, method="multi",
     )
     print(f"wrote {len(weekly):,} rows to alerts_weekly")
+
+    archive = result.reset_index().copy()
+    start = result["window_start"].iloc[0]
+    archive["weeks_of_history"] = int(
+        weekly.loc[weekly["week"] < start, "week"].nunique()
+    )
+    archive["baseline_settled"] = (
+        archive["weeks_of_history"] >= SETTLED_AFTER_WEEKS
+    )
+
+    window_end = result["window_end"].iloc[0]
+    with eng.begin() as conn:
+        conn.execute(
+            text("DELETE FROM rankings_history WHERE window_end = :w"),
+            {"w": window_end},
+        )
+
+    archive.to_sql(
+        "rankings_history",
+        eng,
+        if_exists="append",
+        index=False,
+        chunksize=5000,
+        method="multi",
+    )
+    print(
+        f"archived {len(archive):,} rows "
+        f"for {pd.Timestamp(window_end).date()}"
+    )
 
     with eng.begin() as conn:
         conn.execute(text(

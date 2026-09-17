@@ -4,7 +4,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from db import engine
-from detect_anomalies import load, to_weekly, score, MIN_ACTIVE_WEEKS
+from detect_anomalies import load, to_weekly, score, MIN_ACTIVE_WEEKS, SETTLED_AFTER_WEEKS
 
 # A window this early has almost no history behind it: the seasonal baseline
 # rests on a handful of weeks, or on none at all. Those rows are published
