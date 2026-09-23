@@ -1,0 +1,2333 @@
+/* app.css — Deforestation Monitor
+   One stylesheet for the three pages. No framework, no build step. */
+
+/* ---------- Palette ----------
+   Green is context, bordeaux is attention.
+
+   Bordeaux appears only where there is something to look at: flagged
+   territories, ratios past the threshold, the flagged count, the logo dot.
+   Green is never a green light — a territory with no alert this week is not
+   "fine", it simply did not change — so it carries context and ground, and
+   never approval.
+
+   Two values differ from the palette as specified, both for contrast. The
+   reasoning is on each line; the ratios are AA against every surface the
+   colour actually lands on. */
+
+:root {
+  --ivory:      #F5F3ED;   /* page background          */
+  --white:      #FFFFFF;   /* cards, tables            */
+  --charcoal:   #171717;   /* primary text             */
+  --forest:      #193B32;  /* mid forest — green at text scale   */
+  --forest-deep: #0F241A;  /* the darkest ground: header, panel,
+                              footer, and any filled dark control  */
+  --sage:       #D9E4DC;   /* soft green               */
+  --bordeaux:   #8C2F39;   /* alert                    */
+  --sand:       #D8CBB7;   /* sand                     */
+
+  /* Warm gray, darkened from the specified #74736E, which reaches only
+     4.28:1 on ivory and fails AA for the 12–14px labels and footnotes it is
+     used for. #646360 keeps the same hue and holds 5.41:1 on ivory,
+     6.01:1 on white and 4.60:1 on a sage-hovered row. */
+  --muted:      #646360;
+
+  /* The alert colour used to need a darkened twin for small text: terracotta
+     reached only 3.61:1 once a row was hovered and the ground turned sage.
+     Bordeaux is dark enough that it does not — 8.14:1 on white, 7.33:1 on
+     ivory, 6.23:1 on sage — so this is now the same colour. The token stays
+     because the rules that mean "alert text" are worth keeping distinct from
+     the ones that mean "alert mark", should the palette move again. */
+  --alert-text: var(--bordeaux);
+
+  --ink:        var(--charcoal);
+  --ink-2:      #3F3E3A;
+  --line:       #DDD9D0;
+  --line-soft:  #E8E5DD;
+  --bg:         var(--ivory);
+  --surface:    var(--white);
+
+  /* Attention: flagged territories, ratios past the threshold, errors. */
+  --alert:      var(--bordeaux);
+  --alert-ink:  var(--alert-text);
+  --alert-bg:   #F2E4E7;
+
+  /* On the inverted band. */
+  --on-dark:      #EDE9E0;
+  --on-dark-2:    #CFCAC0;
+  --on-dark-soft: #B5B0A6;
+
+  --wrap-max:   1760px;
+
+  --radius:     6px;
+
+  --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --sans:  ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+/* The scroll cue is a plain link to #tool; the easing is the browser's, and
+   only for readers who have not asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+/* Clear the sticky header, or it lands on top of what you jumped to. */
+[id] { scroll-margin-top: 72px; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; }
+
+/* The page container. Everything textual is capped separately in `ch`, so
+   widening this stretches the map, the tables and the lists — the things that
+   gain from room — without letting any paragraph run to an unreadable
+   measure. Change the one variable to change the whole page. */
+.wrap {
+  width: 100%;
+  max-width: var(--wrap-max);
+  margin: 0 auto;
+  padding: 0 clamp(20px, 2.4vw, 56px);
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--forest-deep);
+  color: #fff;
+  padding: 10px 16px;
+  /* Above the header, which it lands on top of when focused. Whatever else
+     changes, the first thing a keyboard reaches has to stay visible. */
+  z-index: 1200;
+}
+.skip-link:focus { left: 0; }
+
+/* The browser's own [hidden] rule is `display: none` from the user-agent
+   stylesheet, and ANY author rule that sets `display` beats it — author
+   declarations always win over user-agent ones. So every element this site
+   shows and hides through the `hidden` property while also giving it a
+   display (`.map-overlay`, `.filter-bar`, `.chart-legend`,
+   `.scale-toggle`) silently ignored being hidden. This restates the rule at a
+   weight nothing else can outrank.
+
+   Toggle visibility with `el.hidden`, never with inline `style.display`. */
+[hidden] { display: none !important; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--alert);
+  outline-offset: 2px;
+}
+
+/* On the two dark grounds the alert colour cannot carry a focus ring, so the
+   ring switches to sand — 10.21:1 there, and already the colour marking the
+   current section. */
+.site-header :focus-visible,
+.site-footer :focus-visible {
+  outline-color: var(--sand);
+}
+
+/* ---------- Header ---------- */
+
+/* ---------- Header ----------
+   Deep forest, with the logo and the navigation in light. The current section
+   is marked with a rule under it rather than a filled block: terracotta is
+   reserved for anomalies, and a solid slab in any other colour would compete
+   with the terracotta dot in the logo. */
+
+/* Above Leaflet's own ceiling of 1000, not just above the page. The map is
+   sealed in its own stacking context, so this is the second line rather than
+   the first — but a sticky bar that anything at all can paint over is a bug
+   waiting for the next absolutely positioned thing to be added. */
+.site-header {
+  background: var(--forest-deep);
+  color: var(--on-dark);
+  position: sticky;
+  top: 0;
+  z-index: 1100;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 60px;
+}
+
+/* The name and the tagline as one column, so the pair moves together and the
+   nav still measures from a single edge. */
+.brand-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.brand {
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+
+/* What the site is about, under the name. Indented by the width of the dot
+   and its gap, so it starts where "Deforestation" starts rather than under
+   the mark.
+
+   Set in sentence case, not the uppercase of the hero's eyebrow: the header
+   already has one uppercase label in it — "Seven-day window" on the right —
+   and a second one at the other end read as a second control rather than as
+   a description of the first. */
+.brand-tagline {
+  margin: 0;
+  padding-left: 19px;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: .01em;
+  color: var(--on-dark-2);
+  white-space: nowrap;
+}
+
+/* ---------- The anomaly dot ----------
+   The same mark in four places: the logo, ahead of every section heading, on
+   a flagged territory's page, and — drawn by Leaflet, not by this file — as
+   the flagged point on the map. Bordeaux fill, white ring: the ring is what
+   makes it legible on the dark header and on the map tiles alike, and it is
+   what makes the four read as one thing rather than four dots. */
+.brand-mark,
+h2::before,
+.anomaly-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--alert);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .92);
+  flex: none;
+}
+
+h2::before {
+  content: "";
+  display: block;
+  margin-top: .12em;
+}
+
+.brand-thin { color: var(--on-dark-2); }
+
+.site-nav {
+  display: flex;
+  gap: 20px;
+  margin-left: auto;
+}
+
+.site-nav a {
+  text-decoration: none;
+  font-size: 14px;
+  color: var(--on-dark-2);
+  padding: 6px 2px 5px;
+  border-bottom: 2px solid transparent;
+}
+
+.site-nav a:hover {
+  color: #fff;
+  border-bottom-color: rgba(216, 203, 183, .45);
+}
+
+.site-nav a[aria-current="page"],
+.site-nav a[aria-current="page"]:hover {
+  color: #fff;
+  font-weight: 600;
+  border-bottom-color: var(--sand);
+}
+
+/* A state, not an action. Terracotta is for anomalies in the data, and this
+   badge competing with the navigation implied it was something to press. */
+.source-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  letter-spacing: 0;
+  color: var(--on-dark-soft);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: help;
+}
+
+/* The seven days the whole site is showing. The border is deliberately faint,
+   so the box is carried by its fill instead: a container outline is not a
+   control and is not held to 3:1, while every piece of text inside it is. */
+.window-box {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.window-label {
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 700;
+  color: rgba(237, 233, 224, .62);
+}
+
+.window-range {
+  color: #fff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The window a reader can move. It replaces the range text rather than sitting
+   beside it, so the header states the window once.
+
+   A real <select>: it is a choice among 110 dated options, which is what the
+   control is for, and it brings the platform's keyboard handling and its
+   scrolling list for free. Styled down to look like the text it replaces —
+   appearance:none removes the OS chrome, and the caret is drawn back on so it
+   still reads as something you can open. */
+.window-select {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  padding: 3px 22px 3px 8px;
+  border: 1px solid rgba(237, 233, 224, .28);
+  border-radius: 4px;
+  background-color: rgba(237, 233, 224, .07);
+  /* The caret, as a data URI: an external image would be blocked and a glyph
+     in a pseudo-element cannot sit on top of a select. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23EDE9E0' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.window-select:hover { border-color: rgba(237, 233, 224, .5); }
+
+/* The list itself is drawn by the OS, which does not inherit the header's
+   ground — so the options get colours that work on a light popup. */
+.window-select option {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* ---------- Page furniture ---------- */
+
+.page-head { padding: 44px 0 8px; }
+
+h1 {
+  font-size: clamp(26px, 3.4vw, 34px);
+  line-height: 1.18;
+  letter-spacing: -0.018em;
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+/* The paragraph under a page's h1. Two names for one thing: territory.php
+   calls it .lede and history.php .page-note, and the second had no rule at
+   all, so that page's opening line rendered at the browser's default while
+   every other page's was set. One selector rather than a second block, so
+   they cannot drift apart again. */
+.lede,
+.page-note {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--ink-2);
+  font-size: 16.5px;
+}
+
+/* Sans, held up by weight and tracking rather than by a serif's shapes. */
+h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+  color: var(--forest-deep);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  margin: 0 0 4px;
+}
+
+.section { padding: 34px 0; }
+
+.section-note {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  max-width: 68ch;
+}
+
+/* ---------- Home page: the band ----------
+   Full width and the height of the viewport less the header, the photograph
+   behind a flat veil. The copy is seated in the upper half and the week's
+   figures on an opaque strip along the floor, so the band opens the page on a
+   finding rather than on a control panel, and .hero-scroll points at the tool
+   below. Not a column beside the text.
+
+   The veil is one even wash, not a gradient toward the cream. A gradient works
+   only if you know which part of the photograph sits behind which word; a flat
+   veil holds whatever the image does. At 66% of deep forest, white text keeps
+   5.12:1 even over a blown-out white region of the photograph, which is the
+   worst case the image can produce. */
+
+.hero {
+  /* ↓ THE ONLY LINE TO CHANGE to swap the photograph. */
+  --hero-photo: url("hero.jpg");
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100svh - 60px);   /* the viewport, less the sticky header */
+  color: #fff;
+  background-image: var(--hero-photo);
+  background-size: cover;
+
+  /* The source is a portrait frame in a band twice as wide as it is tall, so
+     only about a third of its height survives. 20% down the frame is the
+     darkest ground under the copy — measured, not guessed: it is where the
+     canopy sits on the left and the pale riverbed stays on the right, away
+     from the text. */
+  background-position: 50% 20%;
+  background-color: #33463C;   /* holds the space while the image loads */
+}
+
+@supports not (height: 100svh) {
+  .hero { min-height: calc(100vh - 60px); }
+}
+
+/* The even veil. */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(15, 36, 26, .72);
+}
+
+/* Two auto margins: one above the copy and one above the figures. The free
+   space is split between them, which seats the copy in the upper half and the
+   figures on the floor of the band. Horizontal padding is left to .wrap —
+   setting the `padding` shorthand here is what once pinned the text to the
+   left edge of the viewport. */
+.hero-inner {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  padding-block: clamp(36px, 6vh, 68px);
+}
+
+/* Opaque cream, resting on the floor of the band. z-index because the veil is
+   an absolutely positioned pseudo-element and would otherwise paint over a
+   static sibling. */
+/* Opaque cream, resting on the floor of the band. It sets its own colour:
+   .hero is white-on-photograph, and anything in here that did not declare a
+   colour inherited that white onto the cream. */
+.hero-foot {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  background: var(--bg);
+  color: var(--ink);
+  border-top: 1px solid var(--line);
+}
+
+.hero-eyebrow {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  /* Full white. At 82% this line fell to 4.21:1 against the lightest ground
+     the photograph can put behind the veil, and it is 11.5px text. */
+  color: #fff;
+}
+
+.hero-title {
+  margin: 10px 0 0;
+  font-family: var(--serif);
+  font-size: clamp(30px, 3.4vw, 46px);
+  line-height: 1.1;
+  letter-spacing: -0.022em;
+  font-weight: 400;
+  color: #fff;
+}
+
+.hero-lead {
+  margin: 14px 0 0;
+  max-width: 46ch;
+  font-size: clamp(15px, 1.4vw, 17px);
+  line-height: 1.5;
+  color: #fff;
+}
+
+.hero-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.hero-lead .skeleton {
+  display: inline-block;
+  min-width: 1.7em;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .28);
+  animation: none;
+}
+
+/* Inside the strip, which is itself anchored to the floor of the band — so
+   the cue still lands in the same place on every screen without depending on
+   what sits above it. */
+.hero-scroll {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 16px auto 0;
+  padding: 6px 18px 18px;
+  width: max-content;
+  text-decoration: none;
+  color: var(--forest-deep);
+}
+
+.hero-scroll-label {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+}
+
+/* A ring around the arrow. Not ornament: it is what tells a reader this is a
+   thing to press rather than a mark pointing downwards. */
+.hero-scroll-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1.5px solid var(--forest);
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--forest);
+  transition: background-color .15s ease, transform .15s ease;
+}
+
+.hero-scroll:hover .hero-scroll-arrow {
+  background: var(--sage);
+  transform: translateY(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-scroll-arrow { transition: none; }
+  .hero-scroll:hover .hero-scroll-arrow { transform: none; }
+}
+
+
+/* Three figures on the page ground, told apart by a hairline. No cards. */
+/* ---------- The week in three figures ----------
+   Inside the strip at the foot of the band, on cream. Grouped rather than
+   spread: three figures stretched across 1,700px read as three unrelated
+   facts. */
+
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
+  padding: 22px 0 0;
+}
+
+.figure {
+  min-width: 0;
+  padding: 0 28px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.figure:first-child { padding-left: 0; border-left: 0; }
+.figure:last-child { padding-right: 0; }
+
+/* The number and what it counts, on one line. */
+.figure-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
+
+.figure-value {
+  font-size: clamp(24px, 2vw, 32px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* The one figure that is a ratio takes the alert colour: 7.33:1 on the cream,
+   and a ratio is the one thing on this strip that means "look at this". */
+.figure-value.is-ratio { color: var(--alert); }
+
+.figure-value .unit {
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-left: 3px;
+}
+
+.figure-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--ink);
+}
+
+/* Which territories the number covers — and, for the third, whose it is.
+   Both lines of a figure are flex items in the same column, so they share a
+   left edge; these declarations say so outright rather than relying on it. */
+.figure-head,
+.figure-scope {
+  align-self: stretch;
+  margin: 0;
+  padding: 0;
+  text-indent: 0;
+}
+
+.figure-scope {
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
+/* ---------- Home page: the map and the flagged list, side by side ---------- */
+
+/* The map and the list sit on the page itself. The dark container that used
+   to wrap them is what made the pair read as a dashboard tile. */
+.panel {
+  display: grid;
+  grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
+  gap: 24px;
+  align-items: start;
+  margin: 0;
+  padding: 0;
+  background: none;
+}
+
+/* history.php gives the list more of the row: four columns of headings need
+   room the home page's ten-row panel does not. */
+.panel--60 { grid-template-columns: minmax(0, 60fr) minmax(0, 40fr); }
+
+.panel-map,
+.panel-list {
+  min-width: 0;
+}
+
+/* A map still needs an edge, or it bleeds into the page. A hairline, not a
+   frame. */
+.panel-map {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+/* The map stretches to the row's height rather than setting it outright, so
+   that on a short screen — where ten rows need more room than the map's own
+   clamp would give — the two columns still end level. */
+.panel-map { display: grid; }
+
+.panel-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+/* Why the rows are in the order they are. Without it a reader sees a
+   21-hectare territory above a 3,457-hectare one and concludes the sort is
+   broken. */
+.list-note {
+  margin: 0 0 22px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+.list-note strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.explorer-side .list-note {
+  margin: 0;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Stacked, because the list column is a third of the width. The ratio is the
+   largest thing in the row: it is what this site is for. */
+.panel-row {
+  display: block;
+}
+
+.panel-rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panel-row {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 12px 12px 13px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  color: inherit;
+}
+.panel-row:last-child { border-bottom: 0; }
+
+/* The marker for the selected row. Sage cannot go any darker without dropping
+   the country and the ratio below 4.5:1, so the selected state is carried by
+   this bar and a heavier name rather than by a deeper fill. */
+.panel-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.panel-row:hover { background: var(--sage); }
+.panel-row:hover::before { background: var(--alert); }
+
+.panel-row:focus-visible {
+  background: var(--sage);
+  outline: 2px solid var(--alert);
+  outline-offset: -2px;
+}
+
+.panel-row:active,
+.panel-row.is-selected { background: var(--sage); }
+
+.panel-row:active::before,
+.panel-row.is-selected::before { background: var(--alert); width: 4px; }
+
+.panel-row:active .pl-name,
+.panel-row.is-selected .pl-name { font-weight: 700; }
+
+/* Ten rows, always: they divide the card's height between them. */
+.panel-row:nth-child(n+11) { display: none; }
+
+.pl-rank {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pl-name {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.pl-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.pl-ratio-line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 5px;
+}
+
+/* The dominant element of the row. */
+.pl-ratio {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--alert);
+}
+
+/* No multiple exists for this territory, so nothing here is an anomaly to
+   point at: it drops to the secondary tone and to a readable size. */
+.pl-ratio.is-none {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+
+.pl-note {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.panel-more {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--forest);
+  text-decoration: none;
+}
+.panel-more:hover { text-decoration: underline; }
+
+.panel-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin: 18px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.panel-foot a { color: var(--forest); font-weight: 600; }
+
+/* ---------- Home page: bands below the fold ----------
+   Cream and white alternate so the sections read as separate things. */
+
+.band { padding: clamp(40px, 6vh, 68px) 0; }
+
+.band-white  { background: var(--surface); }
+.band-tool { background: var(--bg); padding: clamp(30px, 4vh, 46px) 0 clamp(32px, 4.5vh, 52px); }
+
+/* ---------- The photograph between two sections ----------
+   A rule, not a section: it sits outside .wrap so it runs edge to edge, and
+   it carries nothing on top of it. The white table above and the cream method
+   below both end in text, and a strip of the actual place is what keeps the
+   page from reading as an unbroken column of numbers.
+
+   The height is tied to the width rather than fixed, because the slice of the
+   photograph that survives is height ÷ width. On a narrow screen a short band
+   still shows most of the frame; on a wide monitor the same fixed height
+   would have cut it to a letterbox, so it grows to the 270px ceiling instead.
+
+   Source is 1400×990 and the band is roughly 8:1, so almost all of it is
+   cropped away and object-position is doing the real work. The group stands
+   across the middle of the frame — headdresses from about 36% down, faces
+   between 47% and 54% — with empty forest above and open water below. At
+   1920px about 20% of the height survives, a little more than the
+   headdresses and the faces together occupy: 48% is what lands that window
+   on them, with the headdresses whole and the group down to the waterline.
+   Centring at 50% cut into the faces themselves. */
+/* The rules top and bottom are on this wrapper and not on the photograph
+   itself, which is the whole reason there is a wrapper at all: a CSS filter
+   applies to everything the element paints, borders included, so a border
+   declared on the filtered image came out at 84% of --forest — a green that
+   is nearly the page's but not it. Out here the filter cannot reach it. */
+.photo-band {
+  border-top: 2px solid var(--forest);
+  border-bottom: 2px solid var(--forest);
+  background: var(--forest);   /* holds the strip while the file loads */
+}
+
+.photo-band img {
+  display: block;
+  width: 100%;
+  height: clamp(200px, 17vw, 270px);
+  object-fit: cover;
+  object-position: 50% 48%;
+
+  /* A quarter of a stop off the exposure, so the band settles into the page
+     instead of being the brightest thing on it. Below about .84 the green of
+     the water starts closing up into black and the strip stops reading as a
+     photograph, so this is close to as far as it goes.
+
+     Done here rather than baked into the file: the JPEG stays the photograph
+     as delivered, and the amount is one number to turn. */
+  filter: brightness(.84);
+}
+
+/* The heading belongs to the tool, not to the page above it. */
+.tool-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tool-head h2 { margin: 0; }
+
+.tool-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The sentence that says what makes this different from a deforestation map.
+   It sits between the figures and the tool, where the reader is about to ask
+   why the ranking is in that order. */
+.transition {
+  margin: 0 0 clamp(26px, 3.5vh, 40px);
+  max-width: 58ch;
+  font-family: var(--serif);
+  font-size: clamp(17px, 1.7vw, 21px);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+/* The long table on white, the method on ivory, the closing statement on
+   forest. */
+.band-method { background: var(--bg); }
+
+.band h2 {
+  font-size: clamp(23px, 2.4vw, 34px);
+  margin-bottom: 10px;
+}
+
+.band-note {
+  margin: 0 0 26px;
+  max-width: 70ch;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+/* Four steps across the page, each carrying the value that stage actually
+   produced. The boxes are gone: what makes a step legible is its number, not a
+   border drawn around an abstraction. A hairline above each one is enough
+   structure, and it is the same rule the About strip below uses.
+
+   The gap is a custom property because the arrows are positioned into it, and
+   a gap that two rules disagree about puts the arrows off-centre. */
+.flow {
+  --flow-gap: clamp(18px, 3vw, 48px);
+  list-style: none;
+  margin: 26px 0 clamp(34px, 5vh, 52px);
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--flow-gap);
+}
+
+.flow-step {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 2px solid var(--line);
+  padding-top: 12px;
+}
+
+.flow-num {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two lines by construction — the markup breaks each label itself — so the
+   values line up across all four columns without needing subgrid. The
+   min-height holds that alignment even if a label ever comes back as one. */
+.flow-label {
+  margin-top: 11px;
+  min-height: 2.7em;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.flow-label span { display: block; }
+
+.flow-value {
+  position: relative;      /* the arrow into the gap is positioned against it */
+  margin-top: 13px;
+  font-size: clamp(21px, 2.3vw, 29px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: break-word;
+}
+
+/* The multiple is the one number this site exists to show, so it carries the
+   alert colour here as it does everywhere else. 7.33:1 on the ivory ground. */
+.flow-value.is-ratio { color: var(--alert); }
+
+/* The result step: the dot is the same anomaly mark as the logo, the map and
+   every heading — the territory is flagged, and that is what the mark means.
+   No outline of the territory: only points are published. */
+.flow-step.is-result .flow-value {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.flow-step.is-result .flow-value a {
+  color: var(--forest-deep);
+  text-decoration: none;
+  border-bottom: 2px solid var(--line);
+}
+
+.flow-step.is-result .flow-value a:hover,
+.flow-step.is-result .flow-value a:focus-visible {
+  border-bottom-color: var(--alert);
+}
+
+/* A step with nothing to show says so in words at a size that cannot be
+   mistaken for a figure. */
+.flow-value .is-none {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.flow-caption {
+  margin-top: 7px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Centred in the gap to the left of each value after the first, so the arrows
+   sit on the line of figures rather than floating between the columns. */
+.flow-step + .flow-step .flow-value::before {
+  content: "→";
+  position: absolute;
+  left: calc(var(--flow-gap) / -2);
+  top: .575em;                    /* the middle of the value's first line */
+  transform: translate(-50%, -50%);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+/* ---------- The two conditions ---------- */
+
+.conditions {
+  border-top: 1px solid var(--line);
+  padding-top: clamp(22px, 3vh, 30px);
+  max-width: 64ch;
+}
+
+.conditions-intro {
+  margin: 0 0 14px;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.conditions-list {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+}
+
+.conditions-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: clamp(16px, 1.7vw, 19px);
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.cond-num {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* In CSS rather than in the markup: the dash is punctuation between the number
+   and the condition, not content, and it keeps a stray em-dash out of the
+   page source where every other one has been removed. */
+.cond-num::after { content: " —"; }
+
+.conditions-tail {
+  margin: 0;
+  max-width: 74ch;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+
+/* ---------- Filter chips ---------- */
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 20px;
+}
+
+.filter-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Pill, which is the convention for a filter control. The status badges stay
+   rectangular: they label a thing, they do not filter one. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 5px 14px;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip:hover { border-color: var(--muted); }
+
+.chip[aria-pressed="true"] {
+  background: var(--forest-deep);
+  border-color: var(--forest-deep);
+  color: #fff;
+}
+
+.chip-count {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chip[aria-pressed="true"] .chip-count { color: var(--on-dark-soft); }
+
+/* ---------- Summary figures (territory page) ---------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: 26px 0 8px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.stat {
+  padding: 0 22px;
+  border-left: 1px solid var(--line);
+}
+.stat:first-child { padding-left: 0; border-left: 0; }
+
+.stat-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.stat-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.022em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value .unit {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+
+.stat-sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stat.is-alert .stat-value { color: var(--alert); }
+
+/* ---------- Tables ---------- */
+
+/* No box around it: a border plus a shadow around a table is what makes it
+   read as a spreadsheet rather than as a list. The long list keeps a frame,
+   because it scrolls and needs an edge. */
+.table-scroll { overflow-x: auto; }
+
+.table-scroll--tall {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+
+  /* Declared on the table so every cell inherits it — ranks, hectares, ratios
+     and per-1,000 alike — rather than being remembered column by column. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rows are separated by air, not by rules. There are no vertical dividers at
+   all, and the only horizontal one sits under the header. */
+table.data th,
+table.data td {
+  padding: 16px 20px 16px 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+table.data tbody td:first-child,
+table.data thead th:first-child { padding-left: 14px; }
+table.data tbody td:last-child,
+table.data thead th:last-child { padding-right: 14px; }
+
+table.data thead th {
+  padding-top: 0;
+  padding-bottom: 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--muted);
+
+  /* The header holds still while the long list scrolls, which is the one
+     place it needs a ground of its own. --surface is opaque white; the ground
+     was never the problem. What passed through it was paint order.
+
+     The hectares column draws a magnitude bar behind its number, so .bar-cell
+     is position:relative and .bar-cell > span sits at z-index 1 to stay above
+     it. A sticky cell with no z-index of its own is z-index:auto, and auto
+     loses to 1 — so every hectares figure in the body painted over the column
+     titles as it scrolled past. This has to outrank the highest thing in a
+     row, not merely be positioned. */
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+
+  /* An inset shadow rather than border-bottom. The table is
+     border-collapse:collapse, where a collapsed border belongs to the table
+     grid instead of to the cell, so it does not travel with the sticky head
+     and the rule is left behind at the top of the table. */
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+table.data tbody tr:hover,
+table.data tbody tr:focus-within { background: var(--sage); }
+
+/* box-shadow on the cell, not the row: with border-collapse:collapse a row
+   will not paint one. */
+table.data tbody tr:hover td:first-child,
+table.data tbody tr:focus-within td:first-child {
+  box-shadow: inset 3px 0 0 var(--alert);
+}
+
+table.data tbody tr:active td:first-child {
+  box-shadow: inset 4px 0 0 var(--alert);
+}
+table.data tbody tr:active .t-name { font-weight: 700; }
+
+table.data .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+table.data .rank {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  width: 1%;
+  padding-right: 0;
+}
+
+/* The name is what a reader scans for, so it outweighs everything but the
+   ratio beside it. */
+.t-name {
+  text-decoration: none;
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border-bottom: 1px solid transparent;
+}
+.t-name:hover { border-bottom-color: var(--ink); }
+.t-name.is-unnamed { font-weight: 400; color: var(--muted); font-style: italic; }
+
+.t-country { color: var(--muted); font-size: 13.5px; }
+
+.ratio {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--alert-text);
+}
+.ratio.is-mild { color: var(--ink-2); font-weight: 600; }
+.ratio.is-none { color: var(--muted); font-weight: 400; font-style: italic; }
+
+/* On the flagged list the ratio is the point of the row — the reason the
+   territory is there at all — so it outweighs everything but the name.
+
+   Set in the sans stack, not the serif: Georgia has only old-style figures,
+   where 3, 4, 5, 7 and 9 drop below the baseline and every digit has its own
+   width. font-variant-numeric: tabular-nums cannot fix that — Georgia has no
+   tabular set for it to switch to — so in the serif this column could not be
+   made to line up at all. At 22px bold it still dominates the row. */
+.ratio.is-big {
+  color: var(--alert);
+  display: block;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.ratio.is-big.is-mild { color: var(--ink); }
+
+.ratio-caption {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+
+/* Two-digit rank, so 01 and 35 occupy the same width and the column reads as
+   a numbered list rather than as data. */
+.rank {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+
+/* A row should read as one line — Rio Biá · Brasil · 733 ha · 31.8× — so the
+   country sits beside the name rather than under it. */
+.name-cell { white-space: normal; }
+.name-cell a { display: inline; }
+.name-cell .t-country { display: inline; font-size: 13px; }
+.name-cell .t-country::before { content: " · "; color: var(--line); }
+
+/* The full list is long by design; it scrolls inside its own box so the
+   sections after it stay reachable. */
+.table-scroll--tall { max-height: 70vh; overflow-y: auto; }
+
+/* Loss magnitude bar behind the hectares column */
+.bar-cell { position: relative; }
+.bar {
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  background: rgba(216, 203, 183, .6);
+  border-radius: 2px;
+  z-index: 0;
+}
+.bar-cell > span { position: relative; z-index: 1; }
+
+/* ---------- Badges and notices ---------- */
+
+.badge {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 3px 9px;
+  border-radius: 4px;
+}
+.badge-flagged { color: #fff; background: var(--alert); }
+.badge-quiet   { color: var(--ink-2); background: var(--line-soft); }
+
+.notice {
+  border-left: 3px solid var(--line);
+  padding: 4px 0 4px 16px;
+  margin: 20px 0;
+  font-size: 14.5px;
+  color: var(--ink-2);
+  max-width: 76ch;
+}
+.notice strong { color: var(--ink); }
+.notice-method { border-left-color: var(--alert); background: var(--alert-bg); }
+
+/* ---------- history.php ---------- */
+
+/* The two years at a glance. Short on purpose: it is context for the week
+   picked underneath it, not the subject of the page. */
+.series { margin: 26px 0 34px; }
+
+.series-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.series-head h2 { font-size: 18px; margin: 0; }
+
+.series-note {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.series-box {
+  height: clamp(150px, 22vh, 210px);
+  padding: 10px 4px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+/* The week picker. A real <select>: 110 dated options is exactly what one is
+   for, and it brings the platform's keyboard handling and its scrolling list. */
+.window-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.window-pick-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--muted);
+}
+
+.window-pick-select {
+  padding: 7px 34px 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background-color: var(--bg);
+  /* Drawn as a data URI: an external image would be one more request for a
+     caret, and a glyph in a pseudo-element cannot sit on top of a select. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23646360' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  -webkit-appearance: none;
+  appearance: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.window-pick-select:disabled { color: var(--muted); cursor: default; }
+.window-pick-select:hover:enabled { border-color: var(--muted); }
+
+.window-pick-note {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The figures here stand on the page rather than on the hero's cream strip,
+   so they need the rule the strip was giving them. */
+.figures-plain {
+  margin: 0 0 26px;
+  padding-top: 4px;
+}
+
+/* map.js's own list, set inside a panel column rather than in the explorer's
+   full-height side. The scroll comes from .explorer-rows; the heading row and
+   the track they share are here.
+
+   One custom property drives both the heading and every row, because a
+   heading whose columns are declared separately from the rows' is a heading
+   that drifts out of alignment the first time either is touched. The last two
+   tracks are wider than the explorer's: these headings are words, not
+   icons. */
+.history-list {
+  --list-grid: 32px minmax(0, 1fr) 76px 96px;
+  min-height: 0;                 /* or the scroll box refuses to shrink */
+}
+
+.history-list .explorer-row,
+.history-list .list-head {
+  grid-template-columns: var(--list-grid);
+}
+
+/* Outside the scrolling box, so it cannot move and nothing can pass behind
+   it. The opaque ground is belt and braces: the panel it sits on is already
+   the page, and this keeps it reading as a heading rather than as a first
+   row. */
+.list-head {
+  flex: none;
+  display: grid;
+  gap: 10px;
+  align-items: end;
+  padding: 0 18px 8px 15px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  line-height: 1.25;
+  color: var(--muted);
+}
+
+.lh-ha,
+.lh-ratio { text-align: right; }
+
+.history-list .explorer-rows {
+  border-top: 0;
+  background: var(--surface);
+}
+
+/* The count line sits opposite the caption, as the "Full map" link does on
+   the home page. */
+.panel-foot-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Most frequently flagged ----------
+   The one list on the site that reads across the weeks rather than within
+   one. It reuses the week's ranking rows above it, so the two read as the
+   same component; what changes is the last column, which is a count of
+   weeks rather than a multiple — and it is set the way the multiple is set
+   everywhere else, because it is what the row is for. */
+.frequent { margin: clamp(34px, 5vh, 52px) 0 0; }
+
+.frequent .band-note { margin: 12px 0 18px; }
+
+/* Same rule as .history-list: one property drives the heading and the rows,
+   so they cannot drift apart. The count column is wider than the ratio's:
+   the number is larger, and the heading over it is two words. */
+.frequent-list {
+  --list-grid: 32px minmax(0, 1fr) 96px 110px;
+}
+
+.frequent-list .explorer-row,
+.frequent-list .list-head {
+  grid-template-columns: var(--list-grid);
+}
+
+.frequent-list .explorer-rows {
+  overflow: visible;             /* twenty rows: it does not need to scroll */
+  background: var(--surface);
+}
+
+/* A little taller than the rows beside the map: this list is not sharing
+   its column with anything, and the larger number wants the room. */
+.frequent-list .explorer-row { padding-top: 10px; padding-bottom: 10px; }
+
+.lh-times { text-align: right; }
+
+/* The dominant element of the row, as .pl-ratio is on the home page and
+   .ratio.is-big is in the flagged table. Sans and tabular for the same
+   reason as there: the column has to line up. */
+.ex-times {
+  text-align: right;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--alert);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The footnote here is a sentence, not a caption and a count, so it does
+   not spread across the width. */
+.frequent .panel-foot { max-width: 78ch; }
+
+/* ---------- Rising, not yet flagged ----------
+   The frequent list again, one column shorter: there is no hectares figure
+   to set beside a slope. The number is the slope in the ratio's own units,
+   given the treatment the count has above it, with a caption under it that
+   says what "per" it is — the header names the quantity, the caption the
+   rate, and neither has to carry both. */
+/* Both classes in the selector, not just .rising-list. The element carries
+   `frequent-list rising-list`, so .frequent-list above declares --list-grid on
+   it too; at equal specificity the winner is whichever rule is written later,
+   and this one only worked because it happens to come second in the file.
+   Moved above the other block, the rising list silently took the frequent
+   list's FOUR tracks — the slope squeezed into the hectares column and an
+   empty 110px track hanging off the right edge. Two classes outrank one, so
+   the order stops mattering. */
+.frequent-list.rising-list {
+  --list-grid: 32px minmax(0, 1fr) 110px;
+}
+
+/* The same pairing .history-list and .frequent-list carry: heading and rows
+   read the one variable, so they cannot drift apart. */
+.rising-list .explorer-row,
+.rising-list .list-head {
+  grid-template-columns: var(--list-grid);
+}
+
+.ex-slope {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.ex-slope-caption {
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: var(--muted);
+}
+
+/* ---------- The early-window warning ----------
+   Louder than a .notice on purpose. This one is not context a reader can take
+   or leave: without it the flagged count of an early window reads as a
+   catastrophe rather than as a baseline built on too few weeks. A filled
+   ground and a bordeaux edge, above the ranking it qualifies. */
+.window-warning {
+  margin: 0 0 clamp(22px, 3vh, 30px);
+  padding: 16px 20px;
+  border-left: 4px solid var(--alert);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--alert-bg);
+  max-width: 78ch;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+/* --alert-ink on --alert-bg is 6.60:1; the body text beside it, 8.68:1. */
+.window-warning strong {
+  color: var(--alert-ink);
+  font-weight: 700;
+}
+
+.window-warning-weeks {
+  display: block;
+  margin-top: 7px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+/* ---------- Loading and error states ---------- */
+
+.state {
+  padding: 40px 4px;
+  color: var(--muted);
+  font-size: 14.5px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid var(--line);
+  border-top-color: var(--muted);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  flex: none;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 3s; }
+}
+
+.state-error {
+  color: var(--alert-ink);
+  background: var(--alert-bg);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  display: block;
+}
+.state-error button {
+  margin-top: 10px;
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 14px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--line-soft), #F2EFE8, var(--line-soft));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 3px;
+  color: transparent;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---------- Territory detail ---------- */
+
+.back-link {
+  display: inline-block;
+  margin: 28px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.back-link:hover { color: var(--ink); }
+
+.t-header { padding: 14px 0 0; }
+
+.t-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.t-title-row .anomaly-dot { align-self: center; }
+
+.t-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 32px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.t-meta div { padding: 4px 0; }
+
+.t-meta dt {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.t-meta dd {
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 15.5px;
+}
+
+.t-meta .no-data { color: var(--muted); font-style: italic; }
+
+/* ---------- Chart ---------- */
+
+.chart-card { padding: 0; }
+
+.chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.chart-box {
+  position: relative;
+  height: 340px;
+}
+
+.scale-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex: none;
+}
+
+.scale-toggle button {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 13px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.scale-toggle button + button { border-left: 1px solid var(--line); }
+.scale-toggle button[aria-pressed="true"] {
+  background: var(--forest-deep);
+  color: #fff;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.swatch {
+  width: 13px; height: 13px;
+  border-radius: 2px;
+  flex: none;
+}
+.swatch-current   { background: var(--alert); }
+.swatch-week      { background: var(--on-dark-soft); }
+/* Paler than an earlier week, and outlined so it does not read as an empty
+   slot: the week exists, it just has not been screened yet. */
+.swatch-pending   { background: #DEDBD4; border: 1px solid var(--line); }
+.swatch-band      { background: var(--sage); border: 1px solid var(--forest); }
+.swatch-threshold { height: 0; border-top: 2px dashed var(--alert); border-radius: 0; }
+
+.chart-caveat {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 76ch;
+}
+
+/* ---------- Maps (home page and map page) ---------- */
+
+/* ---------- The exploration page ----------
+   The viewport is the frame: the page itself never scrolls, the list scrolls
+   inside its own column, and the map holds still beside it. */
+
+body.map-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100svh;
+  overflow: hidden;
+}
+
+body.map-page main {
+  flex: 1 1 auto;
+  min-height: 0;           /* without this a flex child refuses to shrink and
+                              the column scrolls the page instead of itself */
+  display: flex;
+  flex-direction: column;
+}
+
+.explorer {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 62fr) minmax(0, 38fr);
+}
+
+.explorer-map { min-width: 0; }
+
+.explorer-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+}
+
+.explorer-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 12px;
+}
+
+.explorer-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--forest-deep);
+}
+
+.explorer-count {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.explorer-filters {
+  flex: none;
+  padding: 0 18px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.explorer-filters .filter-bar { margin: 0 0 10px; }
+.explorer-filters .filter-bar:last-child { margin-bottom: 0; }
+
+/* The only thing on the page that scrolls. */
+.explorer-rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.explorer-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 74px 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 18px 9px 15px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* The bar that marks a flagged territory, and the same bar in terracotta when
+   the row is the one under the cursor or the one that was clicked. */
+.explorer-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+}
+.explorer-row.is-flagged::before { background: rgba(140, 47, 57, .42); }
+
+.explorer-row:hover,
+.explorer-row.is-active { background: var(--sage); }
+.explorer-row:hover::before,
+.explorer-row.is-active::before { background: var(--alert); }
+
+.explorer-row:focus-visible {
+  background: var(--sage);
+  outline: 2px solid var(--alert);
+  outline-offset: -2px;
+}
+
+.explorer-row.is-selected { background: var(--sage); }
+.explorer-row.is-selected::before { background: var(--alert); width: 4px; }
+.explorer-row.is-selected .ex-name { font-weight: 700; }
+
+.ex-rank { font-size: 11px; color: var(--muted); }
+.ex-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ex-country { font-weight: 400; font-size: 12px; color: var(--muted); }
+.ex-country::before { content: "· "; color: var(--line); }
+.ex-ha { text-align: right; }
+.ex-ratio { text-align: right; font-weight: 700; color: var(--alert-text); }
+.ex-ratio.is-none { font-weight: 400; color: var(--muted); }
+
+/* Pinned to the floor of the column, outside the scroll. */
+.explorer-note {
+  flex: none;
+  margin: 0;
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.explorer-note strong { color: var(--ink); }
+
+/* Sits with the notice, below its rule rather than behind another one: this
+   is the page's only attribution, so it has to stay in the pinned block and
+   out of the scrolling list. */
+.explorer-source {
+  flex: none;
+  margin: 0;
+  padding: 0 18px 14px;
+  background: var(--bg);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* Two separate jobs, and the map needs both.
+
+   overflow keeps the map's geometry inside the frame: a popup near the edge
+   is clipped rather than spilling over the list beside it.
+
+   z-index keeps its painting inside the frame. Leaflet stacks its own layers
+   high — panes to 700, .leaflet-control 800, the control corners 1000 — and
+   position:relative alone does not open a stacking context, so those numbers
+   were competing directly with the sticky header's 500 and winning. The zoom
+   buttons and the attribution painted over the navigation. A z-index of 0 on
+   a positioned element opens the context that traps all of it; isolation
+   covers the same ground if the position ever changes. */
+.map-shell {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  overflow: hidden;
+  background: #E8E4DB;
+}
+
+/* Inside the green panel on the home page. The 440px floor is not arbitrary:
+   the flagged territories span 18 degrees of latitude, and in a box shorter
+   than about 440px Leaflet's fit drops to a zoom whose frame reaches Nicaragua
+   and leaves the points huddled in the middle. At 440 it holds a frame of
+   roughly +6 to -14, which is the flagged set and little else. */
+/* A definite height, not a minimum. With min-height the ten stacked rows of
+   the list set the row height instead, the map inherited whatever that was,
+   and Leaflet framed the points against a box nobody had designed. */
+.map-shell--home { height: clamp(430px, 48svh, 500px); }
+
+@supports not (height: 48svh) {
+  .map-shell--home { height: clamp(430px, 48vh, 500px); }
+}
+
+/* The list is bounded by the same height and scrolls inside it. */
+.panel-list { max-height: clamp(430px, 48svh, 500px); }
+
+@supports not (height: 48svh) {
+  .panel-list { max-height: clamp(430px, 48vh, 500px); }
+}
+
+.map-canvas { position: absolute; inset: 0; }
+
+.map-caption {
+  margin: 16px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+
+/* Both of these now live inside the shell's stacking context, so they are
+   ranked against Leaflet's ceiling of 1000 rather than against the page.
+   Below that number the zoom buttons would show through the loading veil. */
+.map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(245, 243, 237, .94);
+  text-align: center;
+  padding: 24px;
+}
+
+.map-legend {
+  position: absolute;
+  left: 14px;
+  bottom: 22px;
+  z-index: 1100;
+  background: rgba(255, 255, 255, .95);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  max-width: 240px;
+}
+
+.map-legend p {
+  margin: 0 0 8px;
+  font-weight: 700;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+
+.map-legend span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 0;
+}
+
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.dot-flagged { background: var(--alert); border: 1.5px solid var(--forest-deep); }
+.dot-loss    { background: #8C8981; border: 1px solid rgba(15, 36, 26, .7); }
+.dot-quiet   { background: #C3BDB1; border: 1px solid rgba(15, 36, 26, .55); }
+
+/* Leaflet popup, restyled to match the rest of the page */
+.leaflet-popup-content-wrapper {
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgba(20, 24, 28, .16);
+}
+.leaflet-popup-content { margin: 12px 14px; font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+.popup-name { font-weight: 700; font-size: 15px; display: block; }
+.popup-country { color: var(--muted); font-size: 13px; display: block; margin-bottom: 7px; }
+.popup-loss { font-variant-numeric: tabular-nums; }
+.popup-link { display: inline-block; margin-top: 8px; font-size: 13.5px; font-weight: 600; }
+
+/* ---------- Footer ---------- */
+
+.site-footer {
+  margin-top: 56px;
+  background: var(--forest-deep);
+  color: var(--on-dark);
+  padding: 40px 0 52px;
+}
+
+body.map-page .site-footer { margin-top: 0; }
+
+/* ---------- The caveat and the provenance ----------
+   One set of rules, because it is one set of words: a section at the end of
+   the home page, the footer everywhere else. Both grounds are forest-deep. */
+
+.note-lead {
+  margin: 0 0 20px;
+  max-width: 76ch;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--on-dark);
+}
+
+/* The sentence the rest of the paragraph qualifies. */
+.note-lead strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 16px;
+  color: #fff;
+}
+
+/* Label size, not section-heading size — these introduce three lines each.
+ *
+ * The `.band .note-head` half of the selector is not decoration. `.band h2`
+ * sets 23–34px for a real section heading and, being a class plus an element,
+ * it outranks a bare class: on the home page — the one page whose closing
+ * block sits inside a .band rather than in .site-footer — these two labels
+ * were rendering at up to 34px, larger than the text under them, and most of
+ * why the block ran to a screenful. A single class cannot win that; two can. */
+.note-head,
+.band .note-head {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--sand);
+}
+
+/* h2::before draws the anomaly dot on every heading. It is the mark for a
+   flagged territory, and this heading is not one. */
+.note-head::before { content: none; }
+
+.note-body {
+  margin: 0;
+  max-width: 76ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--on-dark-soft);
+}
+
+/* The block runs to three paragraphs — attribution, the publication lag, the
+   names — and margin:0 ran them together. */
+.note-body + .note-body { margin-top: 11px; }
+
+/* The block that used to sit in the second column moved out to its own strip,
+   so Data is the only thing under the statement and both run the full width.
+   .note-body keeps its own 76ch cap: full width is about not being boxed into
+   half the page, not about running a line to 1,760px. */
+.note-block { margin-top: 22px; }
+
+/* ---------- Built by ----------
+   A strip of its own between the method and the dark close, on white.
+
+   None of the .note-* rules can be reused here: they are written for the
+   forest ground, and --sand on white is 1.60:1. Its own colours, measured
+   against white — 16.31:1 for the name, 10.71:1 for the role, 6.01:1 for the
+   label and the line underneath. */
+.band-credit {
+  background: var(--surface);
+  padding: clamp(30px, 4vh, 46px) 0;
+}
+
+/* .band h2 sets 23–34px and outranks a bare class, which is how the labels in
+   the dark band ended up rendering as section headings. Two classes, so it
+   cannot happen here. */
+.band .credit-head {
+  margin: 0 0 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+}
+
+/* The anomaly dot means "flagged territory". Not on this heading. */
+.credit-head::before { content: none; }
+
+/* The signature. Roughly double what it was in the footer, which is what a
+   name on a strip of its own can carry — but still under the section headings
+   above it, because this is a credit and they are the page. */
+.credit-name {
+  margin: 0;
+  font-size: clamp(22px, 2.2vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  line-height: 1.15;
+  color: var(--forest-deep);
+}
+
+.credit-role {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+.credit-org {
+  margin: 14px 0 0;
+  max-width: 60ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* The home page ends on this instead of on a footer, so the band carries the
+   footer's ground and its own bottom room. */
+/* Three short paragraphs do not need a screenful. .band's own
+   clamp(40px, 6vh, 68px) is sized for a band that carries a map or a table;
+   this one closes the page, so it is overridden rather than inherited. */
+.band-close {
+  background: var(--forest-deep);
+  color: var(--on-dark);
+  padding: clamp(26px, 3.5vh, 40px) 0 clamp(30px, 4vh, 46px);
+}
+
+/* ---------- Small screens ---------- */
+
+/* ---------- Narrower screens ---------- */
+
+@media (max-width: 900px) {
+  /* Below this the two panes cannot share a screen, so the page goes back to
+     scrolling and the map takes a fixed slice of it. */
+  body.map-page { height: auto; overflow: visible; }
+  .explorer { grid-template-columns: 1fr; }
+  .explorer-map { height: 52vh; min-height: 320px; }
+  .explorer-side { border-left: 0; border-top: 1px solid var(--line); }
+  .explorer-rows { overflow-y: visible; }
+  .explorer-note { position: static; }
+}
+
+@media (max-width: 980px) {
+            /* Side by side stops working below this width. */
+  .panel { grid-template-columns: 1fr; }
+  .map-shell--home { min-height: clamp(380px, 46svh, 440px); }
+
+  /* Two by two. The arrow only belongs where a step has a neighbour to its
+     left, so the ones that now start a row lose theirs. */
+  .flow { grid-template-columns: 1fr 1fr; row-gap: clamp(24px, 4vh, 36px); }
+  .flow-step:nth-child(odd) .flow-value::before { content: none; }
+
+}
+
+@media (max-width: 860px) {
+  .window-label { display: none; }
+}
+
+@media (max-width: 640px) {
+  .window-box { display: none; }
+}
+
+/* The tagline is one unbroken line and does not shrink, so below this width
+   it is the thing that pushes the navigation off the right edge. The hero on
+   the home page still carries the same words, and the meta description
+   carries them for everyone else. */
+@media (max-width: 480px) {
+  .brand-tagline { display: none; }
+}
+
+@media (max-width: 720px) {
+  .wrap { padding: 0 18px; }
+  .stat-grid { grid-template-columns: 1fr; gap: 12px; }
+  .stat-value { font-size: 28px; }
+  .header-inner { gap: 12px; }
+  .brand-thin { display: none; }
+  .chart-box { height: 280px; }
+  .map-legend { left: 10px; bottom: 10px; font-size: 12px; }
+  /* The figures stack; each keeps its own two-line shape. */
+  .figures { flex-direction: column; gap: 18px; }
+  .figure { padding: 0; border-left: 0; }
+
+  /* One column. Nothing is to the left of anything, so no arrows at all, and
+     the labels stop reserving room for a second line they no longer need. */
+  .flow { grid-template-columns: 1fr; }
+  .flow-step .flow-value::before { content: none; }
+  .flow-label { min-height: 0; }
+  .flow-label span { display: inline; }
+
+  .table-scroll--tall { max-height: 60vh; }
+}
