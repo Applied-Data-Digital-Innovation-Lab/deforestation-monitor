@@ -26,6 +26,7 @@ WORKERS = 8
 TIMEOUT = 180
 MAX_RETRIES = 3
 REFRESH_DAYS = 30
+MAX_LAG_DAYS = 10
 
 def query_url(version: str) -> str:
     return f"{DATASET_URL}/{version}/query/json"
@@ -161,11 +162,22 @@ def refresh_recent(geostores: pd.DataFrame, start_date: str) -> None:
 
     with eng.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM alerts_daily")).scalar()
+        newest = conn.execute(text("SELECT MAX(date) FROM alerts_daily")).scalar()
 
     print(f"\nreplaced {deleted:,} rows with {len(fresh):,}")
     print(f"{total:,} rows total, {len(failures)} failures")
     for f in failures[:10]:
         print(" ", f)
+
+    lag = (date.today() - newest.date()).days
+    print(f"most recent alert: {newest.date()} ({lag} days behind)")
+
+    # The feed can lag by a few days, but it shouldn't stop advancing.
+    if lag > MAX_LAG_DAYS:
+        raise SystemExit(
+            f"no alerts newer than {newest.date()}, {lag} days behind. "
+            "The feed has stalled or the dataset version is not advancing."
+        )
 
 def backfill(geostores: pd.DataFrame) -> None:
     """Fetch the full history for every territory, resuming if interrupted."""
