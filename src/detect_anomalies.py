@@ -194,8 +194,15 @@ def main() -> None:
     )
     print(f"wrote {len(weekly):,} rows to alerts_weekly")
 
-    archive = result.reset_index().copy()
-    start = result["window_start"].iloc[0]
+    # rankings uses a rolling seven-day window for the site. The archive stores
+    # calendar weeks to avoid overlapping observations in trend analysis.
+
+    last_date = alerts["date"].max()
+    week_end = last_date - pd.Timedelta(days=(last_date.weekday() + 1) % 7)
+    archived = score(weekly, alerts, territories, window_end=week_end)
+
+    archive = archived.reset_index().copy()
+    start = archived["window_start"].iloc[0]
     archive["weeks_of_history"] = int(
         weekly.loc[weekly["week"] < start, "week"].nunique()
     )
@@ -203,11 +210,12 @@ def main() -> None:
         archive["weeks_of_history"] >= SETTLED_AFTER_WEEKS
     )
 
-    window_end = result["window_end"].iloc[0]
     with eng.begin() as conn:
+        # Rewritten every day until the week is behind us, so late alerts land
+        # in the archive too.
         conn.execute(
             text("DELETE FROM rankings_history WHERE window_end = :w"),
-            {"w": window_end},
+            {"w": week_end},
         )
 
     archive.to_sql(
@@ -220,7 +228,7 @@ def main() -> None:
     )
     print(
         f"archived {len(archive):,} rows "
-        f"for {pd.Timestamp(window_end).date()}"
+        f"for the week ending {week_end.date()}"
     )
 
     with eng.begin() as conn:
