@@ -20,8 +20,7 @@ DONE_PATH = ROOT / "data/processed/alerts_done.csv"
 
 DATASET = "gfw_integrated_alerts"
 DATASET_URL = f"https://data-api.globalforestwatch.org/dataset/{DATASET}"
-BACKFILL_VERSION = "v20260801" # The version used for the two-year backfill, kept fixed so the history comes from one coherent snapshot.
-BACKFILL_START = "2024-08-01"
+BACKFILL_START = "2022-08-01"
 WORKERS = 8
 TIMEOUT = 180
 MAX_RETRIES = 3
@@ -206,7 +205,11 @@ def backfill(geostores: pd.DataFrame) -> None:
         done_fh.write("territory_id\n")
 
     sql = build_sql(BACKFILL_START)
-    url = query_url(BACKFILL_VERSION)
+
+    # Pinned versions expire after a few weeks, so use the current version.
+    version = latest_version()
+    url = query_url(version)
+    print(f"using dataset version {version}")
 
     def work(territory_id: int, geostore_id: str):
         return territory_id, fetch(geostore_id, sql, url)

@@ -45,11 +45,22 @@ def main() -> None:
     weeks = sorted(history["window_end"].unique())
     current = weeks[-1]
 
-    # Leave the current week out so a single recent event does not create
+    # Leave the current week out so a recent event does not create
     # an artificial trend.
     earlier = weeks[-WINDOW_WEEKS:-1]
 
-    series = history[history["window_end"].isin(earlier)].copy()
+    # Missing archive weeks mean zero loss, not missing data.
+    seen = history[history["window_end"].isin(earlier)]
+    grid = pd.MultiIndex.from_product(
+        [seen["territory_id"].unique(), earlier],
+        names=["territory_id", "window_end"],
+    )
+    series = (
+        seen.set_index(["territory_id", "window_end"])[["ratio"]]
+        .reindex(grid, fill_value=0.0)
+        .reset_index()
+        .sort_values(["territory_id", "window_end"])
+    )
     series["t"] = series.groupby("territory_id").cumcount()
 
     fitted = series.groupby("territory_id").apply(
@@ -85,20 +96,13 @@ def main() -> None:
         ["name", "country", "slope", "r2", "flagged_now"]
     ].round(3).to_string())
 
-    rising.reset_index().to_sql(
-        "trends",
-        eng,
-        if_exists="replace",
-        index=False,
-        chunksize=5000,
-        method="multi",
-    )
-
     with eng.begin() as conn:
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_trends_territory "
-            "ON trends (territory_id)"
-        ))
+        conn.execute(text("TRUNCATE trends"))
+
+    rising.reset_index().to_sql(
+        "trends", eng, if_exists="append", index=False,
+        chunksize=5000, method="multi",
+    )
 
     print(f"\nwrote {len(rising)} rows to trends")
 

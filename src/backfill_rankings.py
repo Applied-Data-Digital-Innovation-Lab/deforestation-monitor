@@ -10,8 +10,6 @@ from detect_anomalies import load, to_weekly, score, MIN_ACTIVE_WEEKS, SETTLED_A
 # rests on a handful of weeks, or on none at all. Those rows are published
 # anyway, because they cover the 2024 fire season, which is the most
 # significant event in the record. The flag says not to trust the ratio.
-SETTLED_AFTER_WEEKS = 20
-
 
 def main() -> None:
     alerts, territories = load()
@@ -32,22 +30,20 @@ def main() -> None:
             print(f"{i + 1}/{len(weeks)}")
 
     history = pd.concat(frames, ignore_index=True)
+
+    # Only archive territories with recorded loss. The full series, zeros included,
+    # is kept in alerts_weekly.
+    history = history[history["area_ha"] > 0]
+
     print(f"\n{len(history):,} rows across {len(weeks)} windows")
     print(f"flagged in total: {history['flagged'].sum():,}")
 
     eng = engine()
-    history.to_sql("rankings_history", eng, if_exists="replace", index=False,
-                   chunksize=5000, method="multi")
-
     with eng.begin() as conn:
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_rh_window "
-            "ON rankings_history (window_end)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_rh_territory "
-            "ON rankings_history (territory_id)"
-        ))
+        conn.execute(text("TRUNCATE rankings_history"))
+
+    history.to_sql("rankings_history", eng, if_exists="append", index=False,
+                   chunksize=5000, method="multi")
 
     print("wrote rankings_history")
 

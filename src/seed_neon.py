@@ -43,18 +43,12 @@ def main() -> None:
         ("alerts_daily", alerts),
     ]:
         print(f"writing {name}: {len(df):,} rows")
-        df.to_sql(name, eng, if_exists="replace", index=False,
+        # CASCADE, because every other table references territories: this
+        # empties the whole database, and the pipeline rebuilds it.
+        with eng.begin() as conn:
+            conn.execute(text(f"TRUNCATE {name} CASCADE"))
+        df.to_sql(name, eng, if_exists="append", index=False,
                   chunksize=5000, method="multi")
-
-    with eng.begin() as conn:
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_alerts_daily_date "
-            "ON alerts_daily (date)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_alerts_daily_territory "
-            "ON alerts_daily (territory_id)"
-        ))
 
     with eng.connect() as conn:
         for name in ("territories", "geostores", "alerts_daily"):

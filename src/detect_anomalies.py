@@ -180,16 +180,22 @@ def main() -> None:
 
     eng = engine()
 
+    with eng.begin() as conn:
+        conn.execute(text("TRUNCATE rankings"))
+
     result.reset_index().to_sql(
-        "rankings", eng, if_exists="replace", index=False,
+        "rankings", eng, if_exists="append", index=False,
         chunksize=5000, method="multi",
     )
     print(f"\nwrote {len(result):,} rows to rankings")
 
+    with eng.begin() as conn:
+        conn.execute(text("TRUNCATE alerts_weekly"))
+
     weekly[["territory_id", "week", "area_ha", "lost_per_1000ha"]].rename(
         columns={"area_ha": "lost_ha"}
     ).to_sql(
-        "alerts_weekly", eng, if_exists="replace", index=False,
+        "alerts_weekly", eng, if_exists="append", index=False,
         chunksize=5000, method="multi",
     )
     print(f"wrote {len(weekly):,} rows to alerts_weekly")
@@ -202,6 +208,11 @@ def main() -> None:
     archived = score(weekly, alerts, territories, window_end=week_end)
 
     archive = archived.reset_index().copy()
+
+    # Only archive territories with recorded loss. The full series, zeros
+    # included, is kept in alerts_weekly.
+    archive = archive[archive["area_ha"] > 0]
+
     start = archived["window_start"].iloc[0]
     archive["weeks_of_history"] = int(
         weekly.loc[weekly["week"] < start, "week"].nunique()
@@ -230,16 +241,6 @@ def main() -> None:
         f"archived {len(archive):,} rows "
         f"for the week ending {week_end.date()}"
     )
-
-    with eng.begin() as conn:
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_alerts_weekly_territory "
-            "ON alerts_weekly (territory_id)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_rankings_territory "
-            "ON rankings (territory_id)"
-        ))
 
     cols = [
         "name",
