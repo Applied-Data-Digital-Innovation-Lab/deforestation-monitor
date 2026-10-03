@@ -110,4 +110,17 @@ CREATE TABLE IF NOT EXISTS trends (
     window_end      TIMESTAMP NOT NULL,
     weeks_fitted    INTEGER NOT NULL
 );
+
+-- Where inside a territory the loss happened, for the flagged ones.
+CREATE TABLE IF NOT EXISTS hotspots (
+    territory_id  INTEGER NOT NULL REFERENCES territories,
+    window_end    TIMESTAMP NOT NULL,
+    rank          INTEGER NOT NULL,
+    lat           DOUBLE PRECISION NOT NULL,
+    lon           DOUBLE PRECISION NOT NULL,
+    alerts        INTEGER NOT NULL,
+    lost_ha       DOUBLE PRECISION NOT NULL,
+    share_pct     DOUBLE PRECISION NOT NULL,
+    UNIQUE (territory_id, window_end, rank)
+);
 ```

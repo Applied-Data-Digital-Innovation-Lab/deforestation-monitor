@@ -34,3 +34,9 @@ jobs:
         run: python src/detect_trends.py
         env:
           NEON_URL: ${{ secrets.NEON_URL }}
+
+      - name: Locate hotspots
+        run: python src/detect_hotspots.py
+        env:
+          GFW_API_KEY: ${{ secrets.GFW_API_KEY }}
+          NEON_URL: ${{ secrets.NEON_URL }}
