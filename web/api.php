@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 /**
  * api.php — HTTP in front of data.php. Contains no SQL and no knowledge of
- * where the numbers come from; it maps a query string to one of the nine
- * functions in data.php and returns JSON.
+ * where the numbers come from; it maps a query string to one of the read
+ * functions in data.php and returns JSON. It only reads: the one write in the
+ * site, a field report, goes through report.php.
  *
  *   api.php?r=windows                 every window that can be asked for
  *   api.php?r=summary
@@ -14,18 +15,20 @@ declare(strict_types=1);
  *   api.php?r=points&only=flagged     just the flagged ones
  *   api.php?r=territory&id=3841
  *   api.php?r=history&id=3841
+ *   api.php?r=hotspots&id=3841        where inside it the loss happened
+ *   api.php?r=reports&id=3841         what people found when they went to look
  *   api.php?r=frequent                the territories flagged most often
  *   api.php?r=rising                  climbing, but not flagged this week
  *
- * Every resource except `windows`, `history`, `frequent` and `rising`
- * accepts &w=YYYY-MM-DD, the window_end to answer for. Without it the answer
- * comes from `rankings`, the window being evaluated now. With it, from
- * `rankings_history`.
+ * Every resource except `windows`, `history`, `hotspots`, `reports`,
+ * `frequent` and `rising` accepts &w=YYYY-MM-DD, the window_end to answer for. Without it
+ * the answer comes from `rankings`, the window being evaluated now. With it,
+ * from `rankings_history`.
  *
  * `history` takes no window: a territory's weekly loss series is the same
  * series whichever window you are looking at from. `frequent` takes none
  * either: it is a count across every settled window there is. `rising` is
- * fitted by the pipeline for the current window only.
+ * fitted by the pipeline for the current window only, and so is `hotspots`.
  */
 
 require __DIR__ . '/data.php';
@@ -110,6 +113,14 @@ try {
 
         case 'history':
             $payload = dm_history(dm_require_id());
+            break;
+
+        case 'hotspots':
+            $payload = dm_hotspots(dm_require_id());
+            break;
+
+        case 'reports':
+            $payload = dm_reports(dm_require_id());
             break;
 
         case 'frequent':

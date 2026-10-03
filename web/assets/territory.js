@@ -21,22 +21,40 @@
   var chartSub     = document.getElementById('chart-sub');
   var scaleToggle  = document.getElementById('scale-toggle');
 
-  /* Terracotta marks what to look at — the current week and the threshold it
+  /* Bordeaux marks what to look at — the current week and the threshold it
      crossed. Green is the context underneath it: what this place usually
-     loses. Earlier weeks are sand-grey, neither. */
-  var COLOR = {
-    alert:   '#8C2F39',                    /* current window, threshold line */
-    week:    '#B5B0A6',                    /* every earlier week            */
-    pending: '#DEDBD4',                    /* a week begun but not evaluated */
-    forest:  '#193B32',                    /* the band's edge               */
-    sage:    'rgba(217, 228, 220, .85)',   /* the band's fill               */
-    grid:    '#E8E5DD',
-    muted:   '#646360',   /* axis ticks, 6.01:1 on white */
-    ink:     '#3F3E3A',
-    tooltip: '#0F241A'   /* the page's darkest green, not a neutral black */
-  };
+     loses. Earlier weeks are sand-grey, neither.
+
+     Read from the stylesheet's tokens, so the chart and the map follow the
+     theme, and the legend under the chart — drawn by CSS from the same
+     tokens — always shows the colours the bars actually have. */
+  function themeColors() {
+    return {
+      alert:       DM.cssVar('--alert'),            /* current window, threshold line */
+      week:        DM.cssVar('--chart-week'),       /* every earlier week            */
+      pending:     DM.cssVar('--chart-pending'),    /* a week begun but not evaluated */
+      forest:      DM.cssVar('--chart-band-edge'),  /* the band's edge               */
+      sage:        DM.cssVar('--chart-band'),       /* the band's fill               */
+      grid:        DM.cssVar('--chart-grid'),
+      muted:       DM.cssVar('--muted'),            /* axis ticks                    */
+      ink:         DM.cssVar('--ink-2'),
+      tooltip:     DM.cssVar('--tooltip-bg'),
+      tooltipEdge: DM.cssVar('--tooltip-edge'),
+      mapFlagged:  DM.cssVar('--map-flagged'),      /* a hotspot's disc              */
+      mapRing:     DM.cssVar('--map-ring')          /* and its edge                  */
+    };
+  }
+
+  var COLOR = themeColors();
 
   var chart = null;
+  var currentIndex = -1;   // which bar is the evaluated window; read by paintChart
+
+  DM.onTheme(function () {
+    COLOR = themeColors();
+    if (chart) paintChart();
+    restyleHotspots();
+  });
 
   /* Chart.js paints to a canvas, so the stylesheet cannot reach its labels.
      Pointed at the page's own sans stack so the axis does not arrive in
@@ -203,6 +221,149 @@
     DM.replace(noticeTarget, notices);
   }
 
+  /* ---------- hotspots ---------- */
+
+  var hotspotSection = document.getElementById('hotspots');
+  var hotspotList    = document.getElementById('hotspot-list');
+  var hotspotNote    = document.getElementById('hotspot-note');
+  var hotspotMap     = null;
+  var hotspotMarkers = [];
+
+  var HOTSPOTS_LISTED = 5;
+
+  /* Circles are sized by area, not radius, so a hotspot that lost twice the
+     forest covers twice the ink. Relative to the largest one, which is what
+     the reader compares against; the floor keeps the smallest clickable. */
+  var HOTSPOT_R_MAX = 22;
+  var HOTSPOT_R_MIN = 5;
+
+  function hotspotRadius(lostHa, maxHa) {
+    if (!maxHa) return HOTSPOT_R_MIN;
+    return Math.max(HOTSPOT_R_MIN, HOTSPOT_R_MAX * Math.sqrt(lostHa / maxHa));
+  }
+
+  /* "3.4521° S, 62.1234° W". Four decimals is about eleven metres, which is
+     already finer than the two-kilometre clusters these are the centres of. */
+  function coord(value, pos, neg) {
+    return Math.abs(value).toFixed(4) + '° ' + (value < 0 ? neg : pos);
+  }
+
+  function coords(h) {
+    return coord(h.lat, 'N', 'S') + ', ' + coord(h.lon, 'E', 'W');
+  }
+
+  function share(pct) {
+    if (typeof pct !== 'number' || !isFinite(pct)) return DM.NO_DATA;
+    return pct.toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%';
+  }
+
+  /* The flagged point's colours from the map page — a hotspot is where that
+     point's loss was — at a lower opacity, so overlapping circles stay
+     readable as separate ones. */
+  function hotspotStyle(radius) {
+    var style = {
+      color: COLOR.mapRing,
+      weight: 1.5,
+      fillColor: COLOR.mapFlagged,
+      fillOpacity: 0.6
+    };
+    if (radius !== undefined) style.radius = radius;
+    return style;
+  }
+
+  function restyleHotspots() {
+    hotspotMarkers.forEach(function (marker) { marker.setStyle(hotspotStyle()); });
+  }
+
+  function renderHotspots(t, hotspots) {
+    var rows = (hotspots || []).filter(function (h) {
+      return typeof h.lat === 'number' && typeof h.lon === 'number';
+    });
+
+    if (!rows.length) {
+      hotspotSection.hidden = true;
+      return;
+    }
+
+    hotspotSection.hidden = false;
+
+    var listed = rows.slice(0, HOTSPOTS_LISTED);
+    DM.replace(hotspotList, listed.map(function (h) {
+      return el('li', { class: 'hotspot-row' }, [
+        el('span', { class: 'hs-rank', text: String(h.rank) }),
+        el('span', { class: 'hs-coords', text: coords(h) }),
+        el('span', { class: 'hs-num', text: DM.ha(h.lost_ha) }),
+        el('span', { class: 'hs-num hs-share', text: share(h.share_pct) })
+      ]);
+    }));
+
+    /* The share is of the territory's alert pixels, which is what the
+       pipeline clusters. The window's total loss above is GFW's measured
+       area, so the two are close but need not reconcile exactly. */
+    hotspotNote.textContent =
+      (rows.length > HOTSPOTS_LISTED
+        ? 'The ' + HOTSPOTS_LISTED + ' largest of ' + rows.length + ' hotspots. '
+        : '') +
+      '% of alerts is the hotspot’s share of all the alerts recorded in this ' +
+      'territory in the seven days to ' +
+      DM.date(rows[0].window_end || (t.current && t.current.window_end)) +
+      ', counted alert by alert. It is not a share of the hectares lost shown ' +
+      'above, which GFW measures by area. Alerts outside any hotspot were too ' +
+      'scattered to group.';
+
+    buildHotspotMap(t, rows);
+  }
+
+  function buildHotspotMap(t, rows) {
+    if (!window.L) return;
+
+    /* load() runs again on "Try again"; Leaflet will not take a container
+       it has already initialised. */
+    if (hotspotMap) {
+      hotspotMap.remove();
+      hotspotMap = null;
+    }
+    hotspotMarkers = [];
+
+    hotspotMap = L.map('hotspot-map', {
+      zoomControl: true,
+      scrollWheelZoom: false,
+      attributionControl: true
+    });
+
+    /* The same tiles as the map page, in either theme; see format.js. */
+    DM.basemap(hotspotMap);
+
+    var maxHa = rows.reduce(function (m, h) { return Math.max(m, h.lost_ha || 0); }, 0);
+
+    /* Largest drawn first, so a small hotspot next to a large one sits on top
+       of it rather than underneath. */
+    rows.slice().sort(function (a, b) { return b.lost_ha - a.lost_ha; }).forEach(function (h) {
+      var marker = L.circleMarker([h.lat, h.lon], hotspotStyle(hotspotRadius(h.lost_ha, maxHa)))
+        .bindTooltip(
+          '#' + h.rank + ' · ' + DM.ha(h.lost_ha) + ' · ' + share(h.share_pct) + ' of alerts',
+          { direction: 'top' }
+        )
+        .addTo(hotspotMap);
+      hotspotMarkers.push(marker);
+    });
+
+    /* Centred on the territory: its own point goes into the frame with the
+       hotspots, so they are shown where they sit within it rather than
+       zoomed onto by themselves. */
+    var bounds = rows.map(function (h) { return [h.lat, h.lon]; });
+    if (typeof t.lat === 'number' && typeof t.lon === 'number') {
+      bounds.push([t.lat, t.lon]);
+    }
+
+    hotspotMap.invalidateSize({ animate: false });
+    if (bounds.length > 1) {
+      hotspotMap.fitBounds(bounds, { padding: [28, 28], maxZoom: 12, animate: false });
+    } else {
+      hotspotMap.setView(bounds[0], 11, { animate: false });
+    }
+  }
+
   /* ---------- chart ---------- */
 
   function chartMessage(text) {
@@ -366,7 +527,7 @@
      * pipeline — and no bar was marked at all, silently. The evaluated week is
      * the last one that begins on or before the window. ISO dates sort
      * chronologically as strings, so this is a plain comparison. */
-    var currentIndex = -1;
+    currentIndex = -1;
     if (c && c.window_start) {
       var wanted = String(c.window_start).slice(0, 10);
       history.forEach(function (row, i) {
@@ -393,32 +554,29 @@
     });
     var values = history.map(function (row) { return row.lost_ha; });
 
-    var barColors = history.map(function (row, i) {
-      if (i === currentIndex) return COLOR.alert;
-      return i > currentIndex ? COLOR.pending : COLOR.week;
-    });
-
+    /* No colours in here: paintChart() sets every one of them, from the
+       theme, right after the chart is created and again whenever the theme
+       changes. `dmRole` is how it finds each dataset. */
     var datasets = [];
 
     if (baselineHa !== null) {
       datasets.push({
+        dmRole: 'band',
         type: 'line',
         label: 'Its usual level',
         data: values.map(function () { return baselineHa; }),
-        borderColor: COLOR.forest,
         borderWidth: 1,
         borderDash: [4, 3],
-        backgroundColor: COLOR.sage,
         fill: 'origin',
         pointRadius: 0,
         pointHitRadius: 0,
         order: 0
       });
       datasets.push({
+        dmRole: 'threshold',
         type: 'line',
         label: 'Flagging threshold',
         data: values.map(function () { return baselineHa * 2; }),
-        borderColor: COLOR.alert,
         borderWidth: 1.5,
         borderDash: [5, 4],
         fill: false,
@@ -430,10 +588,10 @@
 
     var barsIndex = datasets.length;
     datasets.push({
+      dmRole: 'bars',
       type: 'bar',
       label: 'Hectares lost',
       data: values,
-      backgroundColor: barColors,
       borderWidth: 0,
       barPercentage: 1,
       categoryPercentage: 0.86,
@@ -459,16 +617,15 @@
               maxRotation: 0,
               autoSkip: true,
               maxTicksLimit: 8,
-              color: COLOR.muted,
               callback: function (value, index) { return tickLabels[index]; }
             }
           },
           y: {
             type: 'linear',
             beginAtZero: true,
-            grid: { color: COLOR.grid },
+            grid: {},
             border: { display: false },
-            title: { display: true, text: 'Hectares lost per week', color: COLOR.ink },
+            title: { display: true, text: 'Hectares lost per week' },
             /* Runs again on every update, so it applies the moment the toggle
                switches the scale and undoes itself the moment it switches
                back. */
@@ -478,7 +635,6 @@
               }
             },
             ticks: {
-              color: COLOR.muted,
               callback: function (value) { return axisTick(value); }
             }
           }
@@ -486,7 +642,6 @@
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: COLOR.tooltip,
             padding: 10,
             displayColors: false,
             filter: function (item) { return item.datasetIndex === barsIndex; },
@@ -516,6 +671,8 @@
       }
     });
 
+    paintChart();
+
     /* The range now runs to the end of the last week rather than to the Monday
        it started on, and says which convention it is using either way. */
     var last = history[history.length - 1];
@@ -530,6 +687,40 @@
     scaleToggle.hidden = false;
     setCaveat('linear', baselineHa, pendingCount);
     wireScaleToggle(baselineHa, pendingCount);
+  }
+
+  /* Every colour the chart has, in one place, so creating it and switching
+     theme cannot paint it two different ways. Chart.js paints to a canvas,
+     which the stylesheet cannot reach; these come from its tokens instead. */
+  function paintChart() {
+    chart.data.datasets.forEach(function (ds) {
+      if (ds.dmRole === 'band') {
+        ds.borderColor = COLOR.forest;
+        ds.backgroundColor = COLOR.sage;
+      } else if (ds.dmRole === 'threshold') {
+        ds.borderColor = COLOR.alert;
+      } else if (ds.dmRole === 'bars') {
+        ds.backgroundColor = ds.data.map(function (value, i) {
+          if (i === currentIndex) return COLOR.alert;
+          return i > currentIndex ? COLOR.pending : COLOR.week;
+        });
+      }
+    });
+
+    var scales = chart.options.scales;
+    scales.x.ticks.color = COLOR.muted;
+    scales.y.ticks.color = COLOR.muted;
+    scales.y.grid.color = COLOR.grid;
+    scales.y.title.color = COLOR.ink;
+
+    /* An edge only in dark, where the tooltip's near-black would otherwise
+       sit on the near-black page with nothing between them. */
+    var tooltip = chart.options.plugins.tooltip;
+    tooltip.backgroundColor = COLOR.tooltip;
+    tooltip.borderColor = COLOR.tooltipEdge;
+    tooltip.borderWidth = 1;
+
+    chart.update();
   }
 
   /* The band is drawn flat, and that is a property of this view rather than of
@@ -596,6 +787,107 @@
     });
   }
 
+  /* ---------- field reports ---------- */
+
+  var reportForm   = document.getElementById('report-form');
+  var reportSubmit = document.getElementById('report-submit');
+  var reportStatus = document.getElementById('report-status');
+  var reportDone   = document.getElementById('report-done');
+  var reportList   = document.getElementById('report-list');
+  var reportItems  = document.getElementById('report-items');
+
+  /* The same four the select offers, worded for a list rather than a
+     question. */
+  var VERDICT_LABEL = {
+    confirmed:   'Confirmed',
+    not_found:   'Not found',
+    other_cause: 'Another cause',
+    unsure:      'Unsure'
+  };
+
+  function renderReports(rows) {
+    var reports = (rows || []).filter(function (r) { return VERDICT_LABEL[r.verdict]; });
+
+    if (!reports.length) {
+      reportList.hidden = true;
+      return;
+    }
+
+    /* textContent throughout, via DM.el: the note is whatever a visitor
+       typed, and it must never be read as markup. */
+    DM.replace(reportItems, reports.map(function (r) {
+      return el('li', { class: 'report-item' }, [
+        el('div', { class: 'report-item-head' }, [
+          el('span', { class: 'report-verdict', text: VERDICT_LABEL[r.verdict] }),
+          el('span', { class: 'report-date', text: DM.date(r.submitted_at) })
+        ]),
+        r.note ? el('p', { class: 'report-note', text: r.note }) : null
+      ]);
+    }));
+    reportList.hidden = false;
+  }
+
+  function loadReports() {
+    return DM.fetchJSON('api.php?r=reports&id=' + encodeURIComponent(territoryId))
+      .then(renderReports)
+      .catch(function (err) {
+        /* As with the hotspots: the list is an addition, and failing to read
+           it must not take the form down with it. */
+        if (window.console && console.warn) {
+          console.warn('[deforestation-monitor] field reports unavailable: ' + err.message);
+        }
+      });
+  }
+
+  function wireReportForm() {
+    if (!reportForm) return;
+
+    var sent = false;
+
+    reportForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+
+      /* One report per page load. The form is removed on success, so this
+         only matters for a second press while the first is in flight. */
+      if (sent) return;
+
+      if (!reportForm.elements.verdict.value) {
+        reportStatus.textContent = 'Choose what you found before sending.';
+        reportStatus.className = 'report-status is-error';
+        reportForm.elements.verdict.focus();
+        return;
+      }
+
+      sent = true;
+      reportSubmit.disabled = true;
+      reportStatus.textContent = 'Sending…';
+      reportStatus.className = 'report-status';
+
+      DM.fetchJSON('report.php', {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        body: new URLSearchParams(new FormData(reportForm))
+      }).then(function () {
+        /* The form goes, rather than being cleared: what this page load had
+           to say has been said, and an empty form invites a second copy of
+           it. A reload brings it back. */
+        reportForm.hidden = true;
+        reportDone.hidden = false;
+        reportDone.focus();
+        loadReports();
+      }).catch(function (err) {
+        /* A failed send was not a report, so the button comes back. */
+        sent = false;
+        reportSubmit.disabled = false;
+        reportStatus.textContent = err.message;
+        reportStatus.className = 'report-status is-error';
+      });
+    });
+  }
+
+  wireReportForm();
+  loadReports();
+
   /* ---------- loading ---------- */
 
   function showLoading() {
@@ -639,7 +931,16 @@
 
     Promise.all([
       DM.fetchJSON('api.php?r=territory&id=' + encodeURIComponent(territoryId)),
-      DM.fetchJSON('api.php?r=history&id=' + encodeURIComponent(territoryId))
+      DM.fetchJSON('api.php?r=history&id=' + encodeURIComponent(territoryId)),
+      /* Not allowed to take the page down with it: the section is an addition
+         to the territory's figures, and without it the rest still stands. */
+      DM.fetchJSON('api.php?r=hotspots&id=' + encodeURIComponent(territoryId))
+        .catch(function (err) {
+          if (window.console && console.warn) {
+            console.warn('[deforestation-monitor] hotspots unavailable: ' + err.message);
+          }
+          return [];
+        })
     ]).then(function (results) {
       clearTimeout(waking);
       var t = results[0];
@@ -649,6 +950,7 @@
       renderHeader(t, weeks);
       renderStatus(t);
       renderNotices(t, weeks);
+      renderHotspots(t, results[2]);
       whenChartReady(function () { buildChart(t, history); });
     }).catch(function (err) {
       clearTimeout(waking);

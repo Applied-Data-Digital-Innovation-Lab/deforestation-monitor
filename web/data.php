@@ -35,13 +35,16 @@ declare(strict_types=1);
  * and those gaps arrive as either NULL or 0. Both become NULL here, so the
  * pages can say "no data" instead of claiming a territory has no inhabitants.
  *
- * This file is read-only by design. There is no INSERT, UPDATE or DELETE
- * anywhere in this site, and nothing here recalculates a published number.
+ * This file is read-only by design, with one exception. The only write in the
+ * site is dm_submit_report(), which INSERTs a field report into
+ * `field_reports` — the one table the web role may write to. There is no
+ * UPDATE or DELETE anywhere, nothing writes to a table the pipeline owns, and
+ * nothing here recalculates a published number.
  */
 
 
 /* ==========================================================================
-   PUBLIC API — the nine things the site can ask for
+   PUBLIC API — what the site can ask for, and the one thing it can write
 
    TWO RANKING TABLES, NEVER ONE QUERY
    -----------------------------------
@@ -139,6 +142,65 @@ function dm_territory(int $territory_id, ?string $window = null): ?array
 function dm_history(int $territory_id): array
 {
     return dm_pg_history($territory_id);
+}
+
+/**
+ * Where inside one territory the current window's loss happened: the
+ * pipeline's clusters of alert pixels, largest first. Up to ten rows, and
+ * none at all for a territory that is not flagged this window.
+ *
+ * `share_pct` is the hotspot's share of the territory's alert pixels in the
+ * window, and `lost_ha` is its pixel count at 0.01 ha each — so the hotspots
+ * need not add up to the window's `lost_ha`, which GFW measures by area.
+ *
+ * -> [['rank' => int, 'lat' => float, 'lon' => float, 'alerts' => int,
+ *      'lost_ha' => float, 'share_pct' => float, 'window_end' => string], ...]
+ */
+function dm_hotspots(int $territory_id): array
+{
+    return dm_pg_hotspots($territory_id);
+}
+
+/* What someone who went to look can say they found. The database accepts
+   exactly these four, so the list lives here once and report.php validates
+   against it rather than against a copy. */
+const DM_VERDICTS = ['confirmed', 'not_found', 'other_cause', 'unsure'];
+
+const DM_REPORT_NOTE_MAX     = 2000;  // characters, not bytes
+const DM_REPORT_REPORTER_MAX = 200;
+const DM_REPORTS_PER_HOUR    = 5;     // per source IP
+
+/**
+ * Field reports filed for one territory, newest first. Fifty at most.
+ *
+ * Never the reporter's name or the IP: those are stored for follow-up and for
+ * the rate limit, and neither is published.
+ *
+ * -> [['verdict' => string, 'note' => string|null,
+ *      'submitted_at' => string], ...]
+ */
+function dm_reports(int $territory_id): array
+{
+    return dm_pg_reports($territory_id);
+}
+
+/**
+ * Record one field report, against the window being evaluated now.
+ *
+ * Arguments arrive already validated by report.php — verdict in DM_VERDICTS,
+ * lengths within the limits, empty strings turned into null.
+ *
+ * @return string 'ok', 'rate_limited' (this IP has filed DM_REPORTS_PER_HOUR
+ *                in the last hour) or 'not_found' (no such territory).
+ */
+function dm_submit_report(
+    int $territory_id,
+    string $verdict,
+    ?string $note,
+    ?string $reporter,
+    string $source_ip
+): string {
+    return dm_pg_submit_report($territory_id, $verdict, $note, $reporter, $source_ip);
 }
 
 /**
@@ -508,6 +570,112 @@ function dm_pg_history(int $territory_id): array
     return array_map('dm_shape_week', $rows);
 }
 
+function dm_pg_hotspots(int $territory_id): array
+{
+    // Joined to `rankings` on the window so the hotspots can only ever be the
+    // current window's. The pipeline truncates and refills `hotspots` on its
+    // own schedule; if `rankings` has moved on to a new week since, the rows
+    // left over describe a week this page no longer shows, and none come back
+    // rather than last week's under this week's figures.
+    //
+    // ::date on both sides because both are timestamps written by separate
+    // runs, and a time-of-day difference must not decide the match.
+    $rows = dm_pg_query('
+        SELECT h.rank, h.lat, h.lon, h.alerts, h.lost_ha, h.share_pct,
+               h.window_end
+        FROM hotspots h
+        JOIN rankings r
+          ON r.territory_id = h.territory_id
+         AND r.window_end::date = h.window_end::date
+        WHERE h.territory_id = :id
+        ORDER BY h.rank ASC
+    ', [':id' => $territory_id]);
+
+    return array_map('dm_shape_hotspot', $rows);
+}
+
+function dm_pg_reports(int $territory_id): array
+{
+    // The columns that are published and nothing else: `reporter` and
+    // `source_ip` stay in the table.
+    $rows = dm_pg_query('
+        SELECT verdict, note, submitted_at
+        FROM field_reports
+        WHERE territory_id = :id
+        ORDER BY submitted_at DESC
+        LIMIT 50
+    ', [':id' => $territory_id]);
+
+    return array_map('dm_shape_report', $rows);
+}
+
+function dm_pg_submit_report(
+    int $territory_id,
+    string $verdict,
+    ?string $note,
+    ?string $reporter,
+    string $source_ip
+): string {
+    $pdo = dm_pdo();
+    $pdo->beginTransaction();
+
+    try {
+        // The count and the insert as one step per IP. Without the lock, six
+        // requests arriving together would all count four and all insert.
+        // Transaction-scoped, so it is released by the COMMIT or ROLLBACK
+        // below and cannot be left held.
+        $pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(:ip))')
+            ->execute([':ip' => $source_ip]);
+
+        // Checked here rather than left to the foreign key, so an unknown id
+        // is a 404 the page can explain rather than a constraint error that
+        // reads like an outage.
+        $exists = $pdo->prepare('SELECT 1 FROM territories WHERE territory_id = :id');
+        $exists->execute([':id' => $territory_id]);
+        if ($exists->fetchColumn() === false) {
+            $pdo->rollBack();
+            return 'not_found';
+        }
+
+        $recent = $pdo->prepare('
+            SELECT COUNT(*)
+            FROM field_reports
+            WHERE source_ip = :ip
+              AND submitted_at > NOW() - INTERVAL \'1 hour\'
+        ');
+        $recent->execute([':ip' => $source_ip]);
+        if ((int) $recent->fetchColumn() >= DM_REPORTS_PER_HOUR) {
+            $pdo->rollBack();
+            return 'rate_limited';
+        }
+
+        // window_end is the window being evaluated now — the one the page
+        // was showing — taken from `rankings` rather than from the form, so a
+        // report cannot be filed against a week the page never showed. MAX
+        // because every row of `rankings` carries the same window.
+        $pdo->prepare('
+            INSERT INTO field_reports
+                (territory_id, window_end, verdict, note, reporter, submitted_at, source_ip)
+            VALUES
+                (:id, (SELECT MAX(window_end) FROM rankings), :verdict, :note, :reporter, NOW(), :ip)
+        ')->execute([
+            ':id'       => $territory_id,
+            ':verdict'  => $verdict,
+            ':note'     => $note,
+            ':reporter' => $reporter,
+            ':ip'       => $source_ip,
+        ]);
+
+        $pdo->commit();
+        return 'ok';
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
 function dm_pg_frequent(): array
 {
     // rankings_history only, and every window of it at once — the one query
@@ -734,6 +902,28 @@ function dm_shape_week(array $r): array
         'week'            => dm_text($r['week'] ?? null),
         'lost_ha'         => dm_float($r['lost_ha'] ?? 0) ?? 0.0,
         'lost_per_1000ha' => dm_float($r['lost_per_1000ha'] ?? 0) ?? 0.0,
+    ];
+}
+
+function dm_shape_hotspot(array $r): array
+{
+    return [
+        'rank'       => dm_int($r['rank']),
+        'lat'        => dm_float($r['lat']),
+        'lon'        => dm_float($r['lon']),
+        'alerts'     => dm_int($r['alerts'] ?? 0) ?? 0,
+        'lost_ha'    => dm_float($r['lost_ha'] ?? 0) ?? 0.0,
+        'share_pct'  => dm_float($r['share_pct'] ?? null),
+        'window_end' => dm_text($r['window_end'] ?? null),
+    ];
+}
+
+function dm_shape_report(array $r): array
+{
+    return [
+        'verdict'      => dm_text($r['verdict'] ?? null),
+        'note'         => dm_text($r['note'] ?? null),
+        'submitted_at' => dm_text($r['submitted_at'] ?? null),
     ];
 }
 
