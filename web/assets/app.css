@@ -63,7 +63,145 @@
   --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
   --sans:  ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
+  /* Roles that share a value in light and part ways in dark. Deep forest is
+     the header's ground and the headings' ink here; in dark the header keeps
+     it and the headings cannot, so each use names what it is for. */
+  --heading:    var(--forest-deep);
+  --pressed:    var(--forest-deep);   /* a selected chip or toggle */
+  --on-alert:   #FFFFFF;              /* text on an alert fill     */
+  --photo-rule: var(--forest);
+  --photo-brightness: .84;
+  --skeleton-hi: #F2EFE8;
+  --bar:        rgba(216, 203, 183, .6);
+  --flag-bar:   rgba(140, 47, 57, .42);   /* a flagged row's resting edge */
+  --caret-muted: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23646360' stroke-width='1.6'/%3E%3C/svg%3E");
+
+  /* Read by the scripts, which paint charts and maps the stylesheet cannot
+     reach. One copy of every colour, here, rather than a second set of hex
+     values typed into each script that has to be remembered when this
+     palette moves. */
+  --chart-week:      #B5B0A6;
+  --chart-pending:   #DEDBD4;
+  --chart-band:      rgba(217, 228, 220, .85);
+  --chart-band-edge: var(--forest);
+  --chart-grid:      var(--line-soft);
+  --tooltip-bg:      var(--forest-deep);
+  --tooltip-edge:    transparent;
+
+  --map-ground:      #E8E4DB;
+  --map-veil:        rgba(245, 243, 237, .94);
+  --legend-bg:       rgba(255, 255, 255, .95);
+  --map-flagged:     var(--bordeaux);
+  --map-ring:        var(--forest-deep);   /* the edge of a flagged point */
+  --map-ring-muted:  var(--forest-deep);   /* the edge of every other one */
+  --map-loss:        #8C8981;
+  --map-quiet:       #C3BDB1;
+
   color-scheme: light;
+}
+
+/* ---------- Dark ----------
+   Follows the operating system unless the reader has picked otherwise with
+   the header button, which sets data-theme on <html>. The same declarations
+   twice, because CSS cannot share one block between a media query and an
+   attribute selector: the first applies when the system asks for dark and
+   the reader has not overridden it, the second when the reader has chosen
+   dark whatever the system says. Change one, change both.
+
+   The grounds are near-black with the forest's green in them, so the header
+   and footer — which stay deep forest in both themes — still read as the
+   same family as the page.
+
+   Bordeaux does not survive the move. #8C2F39 is 1.6:1 on this ground and
+   1.55:1 on Esri's dark canvas, so the alert lightens to #E3828C, the same
+   hue: 6.75:1 on the page, 6.24:1 on a card, 5.03:1 on a sage-hovered row,
+   5.46:1 on its own tint, and 4.72:1 as a point on the dark map tiles. White
+   text on it would fall to 2.7:1, so text set on an alert fill turns dark.
+
+   Ratios against the page, the card and a hovered row: ink 14.79 / 13.67 /
+   11.01, ink-2 10.30 / 9.51 / 7.66, muted 6.54 / 6.04 / 4.87, forest 8.18 /
+   7.56 / 6.09. */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:         #131715;
+    --surface:    #1A1F1C;
+    --ink:        #ECE8DF;
+    --ink-2:      #C8C3B8;
+    --muted:      #A09B91;
+    --line:       #333A35;
+    --line-soft:  #252B27;
+    --sage:       #233229;
+    --forest:     #8DB8A0;
+    --bordeaux:   #E3828C;
+    --alert-bg:   #3A2226;
+
+    --heading:    #D6E6DC;
+    --pressed:    #2E5444;
+    --on-alert:   #1A0F11;
+    --photo-rule: #1E3A2F;
+    --photo-brightness: .72;
+    --skeleton-hi: #2E3530;
+    --bar:        rgba(216, 203, 183, .16);
+    --flag-bar:   rgba(227, 130, 140, .5);
+    --caret-muted: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A09B91' stroke-width='1.6'/%3E%3C/svg%3E");
+
+    --chart-week:      #6F6B64;
+    --chart-pending:   #3A3F3B;
+    --chart-band:      rgba(141, 184, 160, .18);
+    --tooltip-bg:      #0B1A13;
+    --tooltip-edge:    #333A35;
+
+    --map-ground:      #333333;
+    --map-veil:        rgba(19, 23, 21, .94);
+    --legend-bg:       rgba(26, 31, 28, .95);
+    --map-ring:        #F5F3ED;
+    --map-ring-muted:  #000000;
+    --map-loss:        #9A968E;
+    --map-quiet:       #77736B;
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:         #131715;
+  --surface:    #1A1F1C;
+  --ink:        #ECE8DF;
+  --ink-2:      #C8C3B8;
+  --muted:      #A09B91;
+  --line:       #333A35;
+  --line-soft:  #252B27;
+  --sage:       #233229;
+  --forest:     #8DB8A0;
+  --bordeaux:   #E3828C;
+  --alert-bg:   #3A2226;
+
+  --heading:    #D6E6DC;
+  --pressed:    #2E5444;
+  --on-alert:   #1A0F11;
+  --photo-rule: #1E3A2F;
+  --photo-brightness: .72;
+  --skeleton-hi: #2E3530;
+  --bar:        rgba(216, 203, 183, .16);
+  --flag-bar:   rgba(227, 130, 140, .5);
+  --caret-muted: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A09B91' stroke-width='1.6'/%3E%3C/svg%3E");
+
+  --chart-week:      #6F6B64;
+  --chart-pending:   #3A3F3B;
+  --chart-band:      rgba(141, 184, 160, .18);
+  --tooltip-bg:      #0B1A13;
+  --tooltip-edge:    #333A35;
+
+  --map-ground:      #333333;
+  --map-veil:        rgba(19, 23, 21, .94);
+  --legend-bg:       rgba(26, 31, 28, .95);
+  --map-ring:        #F5F3ED;
+  --map-ring-muted:  #000000;
+  --map-loss:        #9A968E;
+  --map-quiet:       #77736B;
+
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -282,6 +420,34 @@ h2::before {
   cursor: help;
 }
 
+/* The theme switch. A ring on the header's ground, like the window select
+   beside it, so it reads as a control without competing with the nav. The
+   icon shows where a press takes you: a moon in light, a sun in dark. */
+.theme-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(237, 233, 224, .28);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-dark-2);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: #fff;
+  border-color: rgba(237, 233, 224, .5);
+}
+
+.theme-toggle svg { width: 16px; height: 16px; display: block; }
+.theme-toggle .icon-sun { display: none; }
+.theme-toggle[aria-pressed="true"] .icon-sun  { display: block; }
+.theme-toggle[aria-pressed="true"] .icon-moon { display: none; }
+
 /* The seven days the whole site is showing. The border is deliberately faint,
    so the box is carried by its fill instead: a container outline is not a
    control and is not held to 3:1, while every piece of text inside it is. */
@@ -375,7 +541,7 @@ h2 {
   display: flex;
   align-items: baseline;
   gap: 11px;
-  color: var(--forest-deep);
+  color: var(--heading);
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.012em;
@@ -520,7 +686,7 @@ h2 {
   padding: 6px 18px 18px;
   width: max-content;
   text-decoration: none;
-  color: var(--forest-deep);
+  color: var(--heading);
 }
 
 .hero-scroll-label {
@@ -876,10 +1042,13 @@ h2 {
    applies to everything the element paints, borders included, so a border
    declared on the filtered image came out at 84% of --forest — a green that
    is nearly the page's but not it. Out here the filter cannot reach it. */
+/* --photo-rule rather than --forest: in dark, --forest lightens to carry
+   text, and a pale green rule along both edges of the photograph would frame
+   it like a picture on a wall. */
 .photo-band {
-  border-top: 2px solid var(--forest);
-  border-bottom: 2px solid var(--forest);
-  background: var(--forest);   /* holds the strip while the file loads */
+  border-top: 2px solid var(--photo-rule);
+  border-bottom: 2px solid var(--photo-rule);
+  background: var(--photo-rule);   /* holds the strip while the file loads */
 }
 
 .photo-band img {
@@ -895,8 +1064,9 @@ h2 {
      photograph, so this is close to as far as it goes.
 
      Done here rather than baked into the file: the JPEG stays the photograph
-     as delivered, and the amount is one number to turn. */
-  filter: brightness(.84);
+     as delivered, and the amount is one number to turn — per theme, since on
+     the dark page .84 left the strip the brightest thing on it again. */
+  filter: brightness(var(--photo-brightness));
 }
 
 /* The heading belongs to the tool, not to the page above it. */
@@ -1021,7 +1191,7 @@ h2 {
 }
 
 .flow-step.is-result .flow-value a {
-  color: var(--forest-deep);
+  color: var(--heading);
   text-decoration: none;
   border-bottom: 2px solid var(--line);
 }
@@ -1151,8 +1321,8 @@ h2 {
 .chip:hover { border-color: var(--muted); }
 
 .chip[aria-pressed="true"] {
-  background: var(--forest-deep);
-  border-color: var(--forest-deep);
+  background: var(--pressed);
+  border-color: var(--pressed);
   color: #fff;
 }
 
@@ -1382,7 +1552,7 @@ table.data .rank {
 .bar {
   position: absolute;
   left: 0; top: 6px; bottom: 6px;
-  background: rgba(216, 203, 183, .6);
+  background: var(--bar);
   border-radius: 2px;
   z-index: 0;
 }
@@ -1399,7 +1569,7 @@ table.data .rank {
   padding: 3px 9px;
   border-radius: 4px;
 }
-.badge-flagged { color: #fff; background: var(--alert); }
+.badge-flagged { color: var(--on-alert); background: var(--alert); }
 .badge-quiet   { color: var(--ink-2); background: var(--line-soft); }
 
 .notice {
@@ -1472,8 +1642,10 @@ table.data .rank {
   border-radius: 4px;
   background-color: var(--bg);
   /* Drawn as a data URI: an external image would be one more request for a
-     caret, and a glyph in a pseudo-element cannot sit on top of a select. */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23646360' stroke-width='1.6'/%3E%3C/svg%3E");
+     caret, and a glyph in a pseudo-element cannot sit on top of a select.
+     A token, because a data URI cannot read --muted and the caret has to
+     change colour with the theme. */
+  background-image: var(--caret-muted);
   background-repeat: no-repeat;
   background-position: right 12px center;
   -webkit-appearance: none;
@@ -1724,7 +1896,7 @@ table.data .rank {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--line-soft), #F2EFE8, var(--line-soft));
+  background: linear-gradient(90deg, var(--line-soft), var(--skeleton-hi), var(--line-soft));
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
   border-radius: 3px;
@@ -1823,7 +1995,7 @@ table.data .rank {
 }
 .scale-toggle button + button { border-left: 1px solid var(--line); }
 .scale-toggle button[aria-pressed="true"] {
-  background: var(--forest-deep);
+  background: var(--pressed);
   color: #fff;
 }
 
@@ -1848,11 +2020,13 @@ table.data .rank {
   flex: none;
 }
 .swatch-current   { background: var(--alert); }
-.swatch-week      { background: var(--on-dark-soft); }
+/* The same tokens territory.js paints the bars with, so the key cannot show
+   one grey while the chart draws another. */
+.swatch-week      { background: var(--chart-week); }
 /* Paler than an earlier week, and outlined so it does not read as an empty
    slot: the week exists, it just has not been screened yet. */
-.swatch-pending   { background: #DEDBD4; border: 1px solid var(--line); }
-.swatch-band      { background: var(--sage); border: 1px solid var(--forest); }
+.swatch-pending   { background: var(--chart-pending); border: 1px solid var(--line); }
+.swatch-band      { background: var(--chart-band); border: 1px solid var(--chart-band-edge); }
 .swatch-threshold { height: 0; border-top: 2px dashed var(--alert); border-radius: 0; }
 
 .chart-caveat {
@@ -1860,6 +2034,212 @@ table.data .rank {
   font-size: 13px;
   color: var(--muted);
   max-width: 76ch;
+}
+
+/* ---------- Hotspots (territory page) ----------
+   The home page's map-and-list pairing, smaller: a few circles inside one
+   territory need far less map than the basin does. */
+
+.map-shell--hotspots { height: 340px; }
+
+.hotspot-side { min-width: 0; }
+
+.hotspot-head,
+.hotspot-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 74px 92px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 9px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hotspot-head {
+  padding-top: 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+}
+
+.hotspot-list { margin: 0 0 14px; padding: 0; list-style: none; }
+
+.hotspot-row {
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 14px;
+}
+
+.hs-rank { font-size: 12px; color: var(--muted); }
+.hs-coords { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-num { text-align: right; }
+.hs-share { font-weight: 700; }
+
+.hotspot-side .list-note { margin: 0; }
+
+/* ---------- Field reports (territory page) ----------
+   The site's one form. Set in the page's own tokens and nothing else, so it
+   follows the theme like the rest; the controls take the surface colour, a
+   step off the page, which is how the window picker on history.php reads as
+   a control too. */
+
+/* Everything above this on the page is the system's reading of the
+   territory; this is the reader's turn to answer it. A hairline across the
+   full width, with room on both sides of it, marks the change — the same rule
+   the figures sit under, not a box around the form. */
+.section-divided {
+  margin-top: 30px;
+  padding-top: 44px;
+  border-top: 1px solid var(--line);
+}
+
+.report-form { max-width: 62ch; }
+
+.field { margin: 0 0 18px; }
+
+.field label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.field-hint {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field select,
+.field textarea,
+.field input[type="text"] {
+  display: block;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background-color: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.field textarea { resize: vertical; min-height: 7.5em; line-height: 1.5; }
+
+/* The caret drawn back on, as on the window picker: appearance:none removes
+   the OS one, which in dark draws a light-theme arrow on a dark control. */
+.field select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 34px;
+  background-image: var(--caret-muted);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+
+.field select:hover,
+.field textarea:hover,
+.field input[type="text"]:hover { border-color: var(--muted); }
+
+/* The trap. Off screen rather than display:none: some bots skip fields the
+   stylesheet hides outright, and this one has to look fillable. */
+.report-trap {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+/* Filled, in the selected-control green: the one primary action on the page,
+   and not bordeaux — that colour means an alert, not a button. */
+.report-submit {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 9px 20px;
+  border: 1px solid var(--pressed);
+  border-radius: var(--radius);
+  background: var(--pressed);
+  color: #fff;
+  cursor: pointer;
+}
+
+.report-submit:disabled { opacity: .6; cursor: default; }
+
+.report-status {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.report-status.is-error { color: var(--alert-text); }
+
+.report-done {
+  max-width: 62ch;
+  padding: 14px 18px;
+  border-left: 3px solid var(--forest);
+  background: var(--sage);
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+.report-done strong { display: block; color: var(--ink); }
+
+.report-list { margin-top: 30px; max-width: 76ch; }
+
+.report-list-head {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+}
+
+.report-items { margin: 0; padding: 0; list-style: none; }
+
+.report-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.report-item-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+/* A label, not an alert: none of the four is coloured, "confirmed" included.
+   A verdict is a report of what someone saw, and bordeaux on it would read
+   as the site endorsing one answer over another. */
+.report-verdict { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+
+.report-date {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.report-note {
+  margin: 5px 0 0;
+  font-size: 14.5px;
+  color: var(--ink-2);
+  white-space: pre-line;           /* keep the line breaks the reporter typed */
+  overflow-wrap: anywhere;         /* a pasted URL cannot widen the page */
 }
 
 /* ---------- Maps (home page and map page) ---------- */
@@ -1916,7 +2296,7 @@ body.map-page main {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--forest-deep);
+  color: var(--heading);
 }
 
 .explorer-count {
@@ -1970,7 +2350,7 @@ body.map-page main {
   border-radius: 2px;
   background: transparent;
 }
-.explorer-row.is-flagged::before { background: rgba(140, 47, 57, .42); }
+.explorer-row.is-flagged::before { background: var(--flag-bar); }
 
 .explorer-row:hover,
 .explorer-row.is-active { background: var(--sage); }
@@ -2038,7 +2418,7 @@ body.map-page main {
   z-index: 0;
   isolation: isolate;
   overflow: hidden;
-  background: #E8E4DB;
+  background: var(--map-ground);
 }
 
 /* Inside the green panel on the home page. The 440px floor is not arbitrary:
@@ -2082,7 +2462,7 @@ body.map-page main {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(245, 243, 237, .94);
+  background: var(--map-veil);
   text-align: center;
   padding: 24px;
 }
@@ -2092,7 +2472,7 @@ body.map-page main {
   left: 14px;
   bottom: 22px;
   z-index: 1100;
-  background: rgba(255, 255, 255, .95);
+  background: var(--legend-bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 12px 14px;
@@ -2117,15 +2497,52 @@ body.map-page main {
 }
 
 .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
-.dot-flagged { background: var(--alert); border: 1.5px solid var(--forest-deep); }
-.dot-loss    { background: #8C8981; border: 1px solid rgba(15, 36, 26, .7); }
-.dot-quiet   { background: #C3BDB1; border: 1px solid rgba(15, 36, 26, .55); }
+/* The key draws from the tokens map.js paints the points with. */
+.dot-flagged { background: var(--map-flagged); border: 1.5px solid var(--map-ring); }
+.dot-loss    { background: var(--map-loss); border: 1px solid var(--map-ring-muted); }
+.dot-quiet   { background: var(--map-quiet); border: 1px solid var(--map-ring-muted); }
 
-/* Leaflet popup, restyled to match the rest of the page */
-.leaflet-popup-content-wrapper {
+/* Leaflet's own chrome — popups, tooltips, the zoom buttons, the credit line
+   — restyled to the page's ground so it follows the theme. Every selector
+   starts at .map-shell: leaflet.css is linked after this file, so at equal
+   weight its white backgrounds would win. The attribution needs three
+   classes because Leaflet's own rule for it already has two. */
+.map-shell .leaflet-container,
+.map-shell.leaflet-container { background: var(--map-ground); }
+
+.map-shell .leaflet-popup-content-wrapper,
+.map-shell .leaflet-popup-tip {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.map-shell .leaflet-popup-content-wrapper {
   border-radius: var(--radius);
   box-shadow: 0 2px 10px rgba(20, 24, 28, .16);
 }
+
+.map-shell .leaflet-container a.leaflet-popup-close-button,
+.map-shell.leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+
+.map-shell .leaflet-tooltip {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.map-shell .leaflet-tooltip-top::before { border-top-color: var(--surface); }
+
+.map-shell .leaflet-bar a {
+  background-color: var(--surface);
+  border-bottom-color: var(--line);
+  color: var(--ink);
+}
+.map-shell .leaflet-bar a:hover { background-color: var(--sage); }
+
+.map-shell .leaflet-control-container .leaflet-control-attribution {
+  background: var(--legend-bg);
+  color: var(--muted);
+}
+.map-shell .leaflet-control-attribution a { color: var(--ink-2); }
 .leaflet-popup-content { margin: 12px 14px; font-family: var(--sans); font-size: 14px; line-height: 1.45; }
 .popup-name { font-weight: 700; font-size: 15px; display: block; }
 .popup-country { color: var(--muted); font-size: 13px; display: block; margin-bottom: 7px; }
@@ -2239,7 +2656,7 @@ body.map-page .site-footer { margin-top: 0; }
   font-weight: 700;
   letter-spacing: -0.018em;
   line-height: 1.15;
-  color: var(--forest-deep);
+  color: var(--heading);
 }
 
 .credit-role {
@@ -2308,6 +2725,13 @@ body.map-page .site-footer { margin-top: 0; }
    carries them for everyone else. */
 @media (max-width: 480px) {
   .brand-tagline { display: none; }
+
+  /* The theme button is the newest thing in the header and the one that
+     pushed it past a phone's width, so the room comes back from the gaps
+     around it rather than from the nav's words. */
+  .header-inner { gap: 10px; }
+  .site-nav { gap: 14px; }
+  .theme-toggle { width: 28px; height: 28px; }
 }
 
 @media (max-width: 720px) {

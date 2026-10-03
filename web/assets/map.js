@@ -49,25 +49,37 @@
 
   var el = DM.el;
 
-  /* Terracotta only for the flagged points. The rest stay muted: a territory
+  /* Bordeaux only for the flagged points. The rest stay muted: a territory
      with no alert this week is not "fine", it simply did not change, and a
-     colour that reads as approval would say otherwise. */
-  var COLOR = {
-    flagged: '#8C2F39',
-    ring:    '#0F241A',   /* the edge that keeps a point legible on terrain */
-    loss:    '#8C8981',   /* lost forest, within its normal range */
-    quiet:   '#C3BDB1'    /* no recorded loss                    */
-  };
+     colour that reads as approval would say otherwise.
+
+     Read from the stylesheet's --map-* tokens rather than written here, so
+     the points change with the theme and match the legend, which is drawn
+     from the same tokens. */
+  function mapColors() {
+    return {
+      flagged:   DM.cssVar('--map-flagged'),
+      ring:      DM.cssVar('--map-ring'),        /* a flagged point's edge     */
+      ringMuted: DM.cssVar('--map-ring-muted'),  /* every other point's edge   */
+      loss:      DM.cssVar('--map-loss'),        /* lost forest, within its normal range */
+      quiet:     DM.cssVar('--map-quiet')        /* no recorded loss           */
+    };
+  }
+
+  var COLOR = mapColors();
 
   /* ---------- point appearance ---------- */
 
-  /* The ring around a flagged point is deep forest, not the white used by the
-     same mark in the logo and the headings. Those sit on grounds we chose;
-     this one sits on terrain, and the worst ground a basemap offers is a mid
-     tone where a bordeaux disc and a white ring are BOTH weak — measured at
-     2.86:1 on the physical map and 2.89:1 on the grey canvas before it. A
-     dark ring takes the worst case to 3.94:1. The disc, its size and its
-     colour are unchanged, so it still reads as the same mark. */
+  /* In light, the ring around a flagged point is deep forest, not the white
+     used by the same mark in the logo and the headings. Those sit on grounds
+     we chose; this one sits on terrain, and the worst ground a basemap offers
+     is a mid tone where a bordeaux disc and a white ring are BOTH weak —
+     measured at 2.86:1 on the physical map and 2.89:1 on the grey canvas
+     before it. A dark ring takes the worst case to 3.94:1.
+
+     In dark the ground is a flat #333, where a dark ring disappears and a
+     light one holds 11.4:1, so the ring turns light — and the mark becomes the
+     logo's again, a bordeaux disc in a pale ring. */
   function styleFor(point) {
     if (point.flagged) {
       return {
@@ -79,17 +91,19 @@
       };
     }
     /* The muted dots were unstroked, which was fine on a flat grey canvas but
-       leaves them at 1.0:1 against the varied greens of a physical map. The
-       same dark ring, thinner, carries them without making them loud. */
+       leaves them at 1.0:1 against the varied greens of a physical map. A dark
+       ring, thinner, carries them without making them loud. It stays dark in
+       the dark theme: a light ring there would make every quiet territory as
+       visible as a flagged one. */
     if (point.lost_ha > 0) {
       return {
         radius: 3.5, fillColor: COLOR.loss, fillOpacity: 0.85,
-        color: COLOR.ring, weight: 0.75, opacity: 0.7
+        color: COLOR.ringMuted, weight: 0.75, opacity: 0.7
       };
     }
     return {
       radius: 2.5, fillColor: COLOR.quiet, fillOpacity: 0.6,
-      color: COLOR.ring, weight: 0.6, opacity: 0.55
+      color: COLOR.ringMuted, weight: 0.6, opacity: 0.55
     };
   }
 
@@ -162,30 +176,10 @@
       scrollWheelZoom: shell.hasAttribute('data-scroll-zoom')
     });
 
-    /* Esri's topographic map: relief, rivers, roads and place names, in muted
-       beige and green. It replaces the physical map, which stopped at zoom 8
-       and served a grey "no data" tile past it — probed tile by tile, this one
-       still draws contours, rivers and names at z16, and only goes pale at
-       z18 where the terrain itself is empty.
-
-       One layer, not two: it carries its own labels and boundaries, unlike the
-       grey canvas this started as, which needed a separate reference layer
-       over it to put country outlines and city names back.
-
-       CartoDB Voyager was tried again first and still stamps "API KEY
-       REQUIRED" across every tile, on all four subdomains and at @2x.
-
-       No CSS filter over any of it. Darkening tiles makes the place names
-       unreadable, and the names are how you tell where in the basin you are. */
-    L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-      {
-        maxZoom: 19,
-        attribution:
-          '&copy; <a href="https://www.esri.com">Esri</a> — Esri, DeLorme, NAVTEQ, ' +
-          'and the GIS user community'
-      }
-    ).addTo(map);
+    /* The topographic map in light, the dark grey canvas in dark, swapped
+       when the theme changes. Which tiles, and why, is in format.js, where
+       the territory page's map gets the same ones. */
+    DM.basemap(map);
 
     /* Three layers so flagged points always sit above the muted ones. */
     var layers = {
@@ -208,6 +202,15 @@
       fill: false,
       interactive: false,
       renderer: L.svg({ pane: 'halo' })
+    });
+
+    /* A theme change repaints every point. That is 3,866 setStyle calls, but
+       the canvas renderer gathers them into one redraw on the next frame, and
+       it happens only when the reader or the system switches theme. */
+    DM.onTheme(function () {
+      COLOR = mapColors();
+      halo.setStyle({ color: COLOR.flagged });
+      entries.forEach(function (entry) { entry.marker.setStyle(styleFor(entry.point)); });
     });
 
     var entries = [];                        // { point, marker, layer, row }

@@ -21,20 +21,33 @@
   var seriesState = document.getElementById('series-state');
   var seriesNote  = document.getElementById('series-note');
 
-  var COLOR = {
-    alert: '#8C2F39',   /* the chosen week, and the unsettled stretch */
-    line:  '#646360',
-    grid:  '#E8E5DD',
-    muted: '#646360',
-    ink:   '#3F3E3A',
-    tooltip: '#0F241A'
-  };
+  /* From the stylesheet's tokens, so the series follows the theme. Chart.js
+     paints to a canvas, which CSS cannot reach. */
+  function themeColors() {
+    return {
+      alert:       DM.cssVar('--alert'),   /* the chosen week */
+      line:        DM.cssVar('--muted'),
+      grid:        DM.cssVar('--chart-grid'),
+      muted:       DM.cssVar('--muted'),
+      ink:         DM.cssVar('--ink-2'),
+      tooltip:     DM.cssVar('--tooltip-bg'),
+      tooltipEdge: DM.cssVar('--tooltip-edge')
+    };
+  }
+
+  var COLOR = themeColors();
 
   var SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, ' +
              '"Helvetica Neue", Arial, sans-serif';
 
   var windows = [];
   var chart = null;
+  var chosenSeriesDay = null;   // the week marked on the series; read by paintSeries
+
+  DM.onTheme(function () {
+    COLOR = themeColors();
+    if (chart) paintSeries();
+  });
 
   /* The wording is fixed. A window with a handful of weeks behind it flags
      hundreds of territories — 547 in August 2024 against the 40 to 60 of a
@@ -140,17 +153,18 @@
     var labels = series.map(function (entry) { return DM.date(entry.window_end); });
     var values = series.map(function (entry) { return entry.flagged_count; });
 
-    var pointColors = series.map(function (entry) {
-      return day(entry.window_end) === chosenDay ? COLOR.alert : 'rgba(0,0,0,0)';
-    });
     var pointSizes = series.map(function (entry) {
       return day(entry.window_end) === chosenDay ? 4.5 : 0;
     });
 
+    chosenSeriesDay = chosenDay;
+
+    /* The colours, the chosen week's marker among them, are set by
+       paintSeries() — here on every pick, and on its own when the theme
+       changes. */
     if (chart) {
-      chart.data.datasets[0].pointBackgroundColor = pointColors;
       chart.data.datasets[0].pointRadius = pointSizes;
-      chart.update();
+      paintSeries();
       return;
     }
 
@@ -164,12 +178,9 @@
         labels: labels,
         datasets: [{
           data: values,
-          borderColor: COLOR.line,
           borderWidth: 1.5,
           fill: false,
           tension: 0,
-          pointBackgroundColor: pointColors,
-          pointBorderColor: pointColors,
           pointRadius: pointSizes,
           pointHitRadius: 12
         }]
@@ -184,7 +195,6 @@
             grid: { display: false },
             ticks: {
               maxRotation: 0, autoSkip: true, maxTicksLimit: 7,
-              color: COLOR.muted,
               callback: function (value, index) {
                 var d = DM.parseTs(series[index].window_end);
                 return d ? DM.shortDate(series[index].window_end).split(' ')[1] + ' ' +
@@ -194,16 +204,15 @@
           },
           y: {
             beginAtZero: true,
-            grid: { color: COLOR.grid },
+            grid: {},
             border: { display: false },
-            title: { display: true, text: 'Territories flagged', color: COLOR.ink },
-            ticks: { color: COLOR.muted, callback: function (v) { return DM.count(v); } }
+            title: { display: true, text: 'Territories flagged' },
+            ticks: { callback: function (v) { return DM.count(v); } }
           }
         },
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: COLOR.tooltip,
             padding: 10,
             displayColors: false,
             callbacks: {
@@ -224,10 +233,39 @@
       }
     });
 
+    paintSeries();
+
     var unsettled = windows.filter(function (e) { return !e.baseline_settled; }).length;
     seriesNote.textContent = unsettled
       ? DM.count(windows.length) + ' windows · ' + DM.count(unsettled) + ' with an unsettled baseline'
       : DM.count(windows.length) + ' windows';
+  }
+
+  /* Every colour the series has, in one place, so creating it, picking a
+     week and switching theme cannot paint it three different ways. */
+  function paintSeries() {
+    var series = windows.slice().reverse();
+    var pointColors = series.map(function (entry) {
+      return day(entry.window_end) === chosenSeriesDay ? COLOR.alert : 'rgba(0,0,0,0)';
+    });
+
+    var ds = chart.data.datasets[0];
+    ds.borderColor = COLOR.line;
+    ds.pointBackgroundColor = pointColors;
+    ds.pointBorderColor = pointColors;
+
+    var scales = chart.options.scales;
+    scales.x.ticks.color = COLOR.muted;
+    scales.y.ticks.color = COLOR.muted;
+    scales.y.grid.color = COLOR.grid;
+    scales.y.title.color = COLOR.ink;
+
+    var tooltip = chart.options.plugins.tooltip;
+    tooltip.backgroundColor = COLOR.tooltip;
+    tooltip.borderColor = COLOR.tooltipEdge;
+    tooltip.borderWidth = 1;
+
+    chart.update();
   }
 
   /* ---------- loading one window ---------- */

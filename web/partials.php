@@ -60,6 +60,10 @@ function dm_head(string $title, string $active = '', array $head_extra = [], str
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= dm_e($title) ?> · Deforestation Monitor</title>
 <meta name="description" content="Weekly screening of forest loss across <?= dm_territories() ?> indigenous territories in the Amazon basin.">
+<meta name="color-scheme" content="light dark">
+<!-- Before the stylesheet and not deferred: it sets the reader's theme on
+     <html> before the first paint, or a dark choice opens on a light flash. -->
+<script src="<?= dm_asset('assets/theme.js') ?>"></script>
 <link rel="stylesheet" href="<?= dm_asset('assets/app.css') ?>">
 <?php foreach ($head_extra as $line) { echo $line, "\n"; } ?>
 </head>
@@ -104,6 +108,23 @@ function dm_head(string $title, string $active = '', array $head_extra = [], str
          is a deployment that was never finished. -->
     <span class="source-badge" title="NEON_URL is not set, so this site has no data source. Every figure on the page will fail to load until it is set in the environment.">NOT CONFIGURED</span>
 <?php endif; ?>
+
+    <!-- The theme follows the operating system; this overrides it for this
+         site only. A toggle with a fixed name and aria-pressed, rather than a
+         label that flips between "dark" and "light": a name that changes on
+         every press leaves a screen reader user unsure which state it is
+         reporting. Hidden until theme.js wires it up. -->
+    <button type="button" class="theme-toggle" id="theme-toggle"
+            aria-label="Dark mode" aria-pressed="false" hidden>
+      <svg class="icon-moon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1z" fill="currentColor"/>
+      </svg>
+      <svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="3.1" fill="currentColor"/>
+        <path d="M8 1v1.8M8 13.2V15M1 8h1.8M13.2 8H15M3.05 3.05l1.27 1.27M11.68 11.68l1.27 1.27M3.05 12.95l1.27-1.27M11.68 4.32l1.27-1.27"
+              stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
   </div>
 </header>
 <main id="main">

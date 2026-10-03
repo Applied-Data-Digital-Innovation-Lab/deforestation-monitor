@@ -163,8 +163,12 @@ window.DM = (function () {
 
   /* ---------- fetching ---------- */
 
-  function fetchJSON(url) {
-    return fetch(url, { headers: { Accept: 'application/json' } }).then(function (res) {
+  /* `init` is passed through to fetch() — the field report is the one caller
+     that sends a POST; everything else reads. */
+  function fetchJSON(url, init) {
+    var options = init || {};
+    options.headers = options.headers || { Accept: 'application/json' };
+    return fetch(url, options).then(function (res) {
       return res.text().then(function (raw) {
         var body = null;
         try { body = JSON.parse(raw); } catch (e) { /* not JSON */ }
@@ -222,6 +226,101 @@ window.DM = (function () {
     attempt();
   }
 
+  /* ---------- theme ---------- */
+
+  /* A colour token from the stylesheet, as the theme currently resolves it.
+     Charts and maps paint to canvas and tiles, which CSS cannot reach, so
+     they read their colours through this instead of keeping their own. */
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  function theme() {
+    return window.DMTheme ? window.DMTheme.current() : 'light';
+  }
+
+  /* Called with the new theme whenever it changes — by the header button or
+     by the operating system. */
+  function onTheme(fn) {
+    if (window.DMTheme) window.DMTheme.onChange(fn);
+  }
+
+  /* ---------- basemap ----------
+   *
+   * LIGHT: Esri's topographic map — relief, rivers, roads and place names, in
+   * muted beige and green. It replaced the physical map, which stopped at
+   * zoom 8 and served a grey "no data" tile past it; probed tile by tile,
+   * this one still draws contours, rivers and names at z16, and only goes
+   * pale at z18 where the terrain itself is empty. One layer, carrying its
+   * own labels and boundaries. CartoDB Voyager was tried and stamps "API KEY
+   * REQUIRED" across every tile, on all four subdomains and at @2x.
+   *
+   * DARK: Esri's Dark Gray Canvas, which is two layers — the ground, and the
+   * names and boundaries in a reference layer drawn over it. Not the topo map
+   * with a CSS filter: darkening those tiles makes the place names
+   * unreadable, and the names are how you tell where in the basin you are.
+   * The canvas has no relief or contours, which is the price of a dark map
+   * that is drawn dark rather than filtered.
+   *
+   * Its ground is about #333. The light theme's bordeaux point is 1.55:1 on
+   * it — effectively invisible — which is why the stylesheet lightens the
+   * alert in dark: the lighter disc holds 4.72:1 and its light ring 11.4:1.
+   *
+   * The canvas is only drawn to z16; from z17 Esri serves a grey "Map data
+   * not yet available" tile. maxNativeZoom has Leaflet stretch the z16 tiles
+   * instead, so zooming in past it goes soft rather than blank. */
+  var ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+
+  function basemapLayers(which) {
+    if (which === 'dark') {
+      return [
+        L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+          maxZoom: 19,
+          maxNativeZoom: 16,
+          attribution:
+            '&copy; <a href="https://www.esri.com">Esri</a> — Esri, HERE, Garmin, ' +
+            '&copy; OpenStreetMap contributors, and the GIS user community'
+        }),
+        L.tileLayer(ESRI + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+          maxZoom: 19,
+          maxNativeZoom: 16
+        })
+      ];
+    }
+    return [
+      L.tileLayer(ESRI + 'World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution:
+          '&copy; <a href="https://www.esri.com">Esri</a> — Esri, DeLorme, NAVTEQ, ' +
+          'and the GIS user community'
+      })
+    ];
+  }
+
+  /* Put the basemap for the current theme on a map, and swap it when the
+     theme changes. Tile layers sit in Leaflet's tile pane, under every
+     marker, so the swap never changes what is drawn on top. */
+  function basemap(map) {
+    var layers = [];
+    var gone = false;
+
+    /* There is no unsubscribing from the theme, so a map that has been
+       removed — the territory page rebuilds its map on "Try again" — keeps
+       its listener. Adding tiles to a removed map throws; this makes the
+       listener a no-op instead. */
+    map.on('unload', function () { gone = true; });
+
+    function apply(which) {
+      if (gone) return;
+      layers.forEach(function (layer) { map.removeLayer(layer); });
+      layers = basemapLayers(which);
+      layers.forEach(function (layer) { layer.addTo(map); });
+    }
+
+    apply(theme());
+    onTheme(apply);
+  }
+
   /* The summary is wanted by the header on every page and by the home page's
      figures. Memoised so a page asks for it once; a failure clears the cache
      so a retry is a real retry. */
@@ -255,7 +354,11 @@ window.DM = (function () {
     clear: clear,
     replace: replace,
     fetchJSON: fetchJSON,
-    panel: panel
+    panel: panel,
+    cssVar: cssVar,
+    theme: theme,
+    onTheme: onTheme,
+    basemap: basemap
   };
 })();
 
