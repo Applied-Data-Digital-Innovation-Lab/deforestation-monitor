@@ -180,7 +180,7 @@ const DM_REPORTS_PER_HOUR    = 5;     // per source IP
  *      'submitted_at' => string], ...]
  */
 function dm_reports(int $territory_id): array
-{
+{   
     return dm_pg_reports($territory_id);
 }
 
@@ -601,7 +601,7 @@ function dm_pg_reports(int $territory_id): array
     $rows = dm_pg_query('
         SELECT verdict, note, submitted_at
         FROM field_reports
-        WHERE territory_id = :id
+        WHERE territory_id = :id AND approved
         ORDER BY submitted_at DESC
         LIMIT 50
     ', [':id' => $territory_id]);

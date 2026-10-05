@@ -1,4 +1,3 @@
-```sql
 -- Database schema for the deforestation monitor.
 --
 -- The tables used to be created by pandas.to_sql, which meant no keys or
@@ -123,4 +122,25 @@ CREATE TABLE IF NOT EXISTS hotspots (
     share_pct     DOUBLE PRECISION NOT NULL,
     UNIQUE (territory_id, window_end, rank)
 );
-```
+
+-- Reports submitted from the site by people who visited the territory.
+-- Reports stay hidden until approved.
+
+CREATE TABLE IF NOT EXISTS field_reports (
+    id            SERIAL PRIMARY KEY,
+    territory_id  INTEGER NOT NULL REFERENCES territories,
+    window_end    TIMESTAMP,
+    verdict       TEXT NOT NULL CHECK (verdict IN ('confirmed', 'not_found', 'other_cause', 'unsure')),
+    note          TEXT,
+    reporter      TEXT,
+    submitted_at  TIMESTAMP NOT NULL DEFAULT now(),
+    source_ip     TEXT,
+    approved      BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- Territory page lookup and rate limiting.
+CREATE INDEX IF NOT EXISTS idx_field_reports_territory
+    ON field_reports (territory_id, submitted_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_field_reports_ip
+    ON field_reports (source_ip, submitted_at);

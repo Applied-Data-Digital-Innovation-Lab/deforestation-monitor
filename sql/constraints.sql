@@ -1,4 +1,3 @@
-```sql
 -- Keys and constraints for the deforestation monitor.
 --
 -- Applied once against an existing database. schema.sql is used for fresh
@@ -55,4 +54,19 @@ ALTER TABLE trends
     ALTER COLUMN slope SET NOT NULL,
     ALTER COLUMN flagged_now SET NOT NULL,
     ALTER COLUMN window_end SET NOT NULL;
-```
+
+-- hotspots and field_reports are not here: both were created after this file,
+-- with their keys from the start, so there is nothing to alter. They are in
+-- schema.sql like everything else.
+
+-- Database role used by the site. Read-only except for field_reports.
+-- reporter stays in the database and is never exposed by the site.
+
+CREATE ROLE web_reader WITH LOGIN PASSWORD 'set-this-yourself';
+GRANT CONNECT ON DATABASE neondb TO web_reader;
+GRANT USAGE ON SCHEMA public TO web_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO web_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO web_reader;
+
+GRANT INSERT ON field_reports TO web_reader;
+GRANT USAGE, SELECT ON SEQUENCE field_reports_id_seq TO web_reader;
