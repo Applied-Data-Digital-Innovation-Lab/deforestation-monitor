@@ -297,19 +297,19 @@
       ]);
     }));
 
-    /* The share is of the territory's alert pixels, which is what the
-       pipeline clusters. The window's total loss above is GFW's measured
-       area, so the two are close but need not reconcile exactly. */
+    /* Both columns are counts of alert pixels, which is what the pipeline
+       clusters; the window's loss above is GFW's measured area. They sit on
+       the same screen and do not match exactly, so the note says why — once,
+       for both columns — before anyone adds them up and wonders where the
+       rest went. */
     hotspotNote.textContent =
       (rows.length > HOTSPOTS_LISTED
         ? 'The ' + HOTSPOTS_LISTED + ' largest of ' + rows.length + ' hotspots. '
         : '') +
-      '% of alerts is the hotspot’s share of all the alerts recorded in this ' +
-      'territory in the seven days to ' +
-      DM.date(rows[0].window_end || (t.current && t.current.window_end)) +
-      ', counted alert by alert. It is not a share of the hectares lost shown ' +
-      'above, which GFW measures by area. Alerts outside any hotspot were too ' +
-      'scattered to group.';
+      'Hectares are estimated from the number of alert pixels, at 0.01 ha ' +
+      'each, and the share is of alerts rather than of hectares, so neither ' +
+      'matches the measured loss above exactly. Alerts outside any hotspot ' +
+      'were too scattered to group.';
 
     buildHotspotMap(t, rows);
   }
@@ -728,7 +728,20 @@
   function setCaveat(scale, baselineHa, pendingCount) {
     var parts = [];
 
-    /* First, because it is about a bar the reader can see at the right-hand
+    /* First of all, because it is about what every bar is. The bars come
+       from alerts_weekly, one per Monday-to-Sunday week; the figures at the
+       top come from current_window() in the pipeline, the seven days ending
+       on the last day with data. The two line up only when that day is a
+       Sunday, so the bordeaux bar is the calendar week the window starts in
+       (see currentIndex in buildChart) and not the window itself. */
+    parts.push(
+      'Each bar is a calendar week, Monday to Sunday. The figures at the top ' +
+      'of the page are the last seven days with data, which is not the same ' +
+      'window: the bordeaux bar is the calendar week those seven days begin ' +
+      'in, so its height need not match the hectares shown above.'
+    );
+
+    /* Next, because it is about a bar the reader can see at the right-hand
        edge, next to the bordeaux one. */
     if (pendingCount > 0) {
       parts.push(
@@ -749,6 +762,14 @@
         'value for the week being evaluated, so that single value is what is ' +
         'drawn here. The flat band is a simplification of this view, not a ' +
         'property of the method.'
+      );
+      /* The consequence the sentence above leaves out. Loss in the basin is
+         strongly seasonal — the dry-season baseline can be around ten times
+         the wet-season one — so against this one flat level, weeks from the
+         other season are misread. */
+      parts.push(
+        'Because the band is this time of year’s level, a wet-season week ' +
+        'set against a dry-season baseline looks quieter than it was.'
       );
     } else {
       parts.push('No seasonal baseline is stored for this territory, so no band is drawn.');

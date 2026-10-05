@@ -198,6 +198,14 @@ function dm_disclaimer_data(): void
         Territory and country names are shown as recorded in the source data
         and are not translated.
       </p>
+      <!-- Credited here, beside the data sources, rather than under each
+           photograph: both carry no text of their own on purpose, and this
+           block is on every page that has a footer. -->
+      <p class="note-body">
+        Photographs: aerial view of the Amazon river by Neil Palmer/CIAT for
+        the Center for International Forestry Research (CIFOR); community
+        photograph by Franssy Acosta via Pexels.
+      </p>
     </div>
     <?php
 }

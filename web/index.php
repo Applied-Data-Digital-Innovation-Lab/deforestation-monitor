@@ -159,10 +159,17 @@ dm_head('Ranking', 'ranking', [
     </ol>
 
     <div class="conditions">
-      <p class="conditions-intro">A territory is flagged only when both conditions are met:</p>
+      <!-- The third line is the sparse-history path in score()
+           (detect_anomalies.py): with no baseline, a baseline of zero or
+           fewer than MIN_ACTIVE_WEEKS active weeks, the ratio is skipped and
+           MIN_LOST_HA decides on its own. Without it this block said "only
+           when both" while the list below showed territories flagged with
+           no baseline at all. -->
+      <p class="conditions-intro">A territory is flagged when both of the first two conditions are met:</p>
       <ol class="conditions-list">
         <li><span class="cond-num">01</span>at least 5 ha lost in the last 7 days</li>
         <li><span class="cond-num">02</span>at least 2&times; its seasonal baseline</li>
+        <li><span class="cond-num">03</span>or, for a territory with too little history to build a baseline, at least 5 ha on its own</li>
       </ol>
       <p class="conditions-tail">
         The second condition is what keeps large territories with constant loss

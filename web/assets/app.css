@@ -572,7 +572,7 @@ h2 {
 
 .hero {
   /* ↓ THE ONLY LINE TO CHANGE to swap the photograph. */
-  --hero-photo: url("hero.jpg");
+  --hero-photo: url("amazon-river-basin-hero.jpg");
 
   position: relative;
   display: flex;
@@ -582,12 +582,12 @@ h2 {
   background-image: var(--hero-photo);
   background-size: cover;
 
-  /* The source is a portrait frame in a band twice as wide as it is tall, so
-     only about a third of its height survives. 20% down the frame is the
-     darkest ground under the copy — measured, not guessed: it is where the
-     canopy sits on the left and the pale riverbed stays on the right, away
-     from the text. */
-  background-position: 50% 20%;
+  /* An aerial view of the river winding through the canopy, landscape, so
+     the band crops only a strip off the top and bottom. 55% down keeps the
+     meanders — the subject — in the middle of the band and loses the hazy
+     horizon at the top of the frame first, which is the palest part of it
+     and the worst ground for the white copy. */
+  background-position: 50% 55%;
   background-color: #33463C;   /* holds the space while the image loads */
 }
 
@@ -595,13 +595,17 @@ h2 {
   .hero { min-height: calc(100vh - 60px); }
 }
 
-/* The even veil. */
+/* The even veil. At .86 it lets through half the light the .72 it replaced
+   did: the aerial photograph is bright green and blue edge to edge, with no
+   dark ground anywhere for the copy to sit on, so the veil has to supply it.
+   The photograph still reads as river and canopy, and the white copy gains
+   contrast over the brightest water. */
 .hero::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: rgba(15, 36, 26, .72);
+  background: rgba(15, 36, 26, .86);
 }
 
 /* Two auto margins: one above the copy and one above the figures. The free
