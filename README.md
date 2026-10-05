@@ -1,150 +1,269 @@
 # Deforestation Monitor for Indigenous Territories
  
-Detecting forest loss inside legally recognised indigenous territories of the Amazon basin, by crossing RAISG territory boundaries with Global Forest Watch satellite alerts.
+Detecting forest loss inside legally recognised indigenous territories of the Amazon basin, using RAISG territory boundaries and Global Forest Watch satellite alerts.
  
 ---
  
 ## Objective
  
-Track deforestation across 3,866 indigenous territories and surface the ones that are losing forest at an unusual rate for themselves, rather than the ones that are simply large.
+Track deforestation across 3,866 indigenous territories and surface the ones losing forest at an unusual rate for themselves, rather than the ones that are simply large.
  
-That distinction is the whole point. Alerts appear somewhere in the Amazon almost every day, so a system that flags every territory with a new alert flags nearly all of them, nearly always. The useful signal is a territory departing from its own historical and seasonal pattern.
+There are alerts somewhere in the Amazon almost every day, so listing every territory with a new alert produces something nobody can act on. Each territory is compared with its own historical and seasonal pattern instead.
  
-Target output: a ranked table plus a map, showing which territories deserve attention this week and why.
+The result is a public web interface with the current ranking, a map, per-territory history, an archive of previous rankings, and a form for recording what was found on the ground.
  
----
- 
-## Approach
- 
-| Stage | What it does | Status |
-|---|---|---|
-| 1. Territories | Download RAISG polygons, filter, clean, assign a primary key | Done |
-| 2. Geostores | Register each polygon with GFW once, store the returned ID | Done |
-| 3. Alerts | Query GFW for daily alerts per territory, all confidence levels | Done |
-| 4. History | Accumulate and validate the per-territory time series | Done |
-| 5. Anomalies | Normalise by area, detect departures from each territory's seasonal baseline | In progress |
-| 6. Dashboard | Ranked table, time series, map | Not started |
- 
----
- 
-## Data sources
- 
-| Source | What it provides | Format |
-|---|---|---|
-| [RAISG](https://www.raisg.org/en/maps/), `Tis_TerritoriosIndigenas` | Indigenous territory boundaries, June 2025 release | Shapefile |
-| [GFW Data API](https://data-api.globalforestwatch.org/), `gfw_integrated_alerts` | Satellite deforestation alerts | JSON over HTTP |
+**Data sources:** [RAISG](https://www.raisg.org/en/maps/) `Tis_TerritoriosIndigenas` (territory boundaries, June 2025) and the [GFW Data API](https://data-api.globalforestwatch.org/) `gfw_integrated_alerts` (daily satellite alerts).
  
 ---
  
 ## Scope
  
-Of the 7,466 polygons in the RAISG layer, 3,866 are used. Three filters narrow it down.
+The RAISG layer contains 7,466 polygons; the project uses 3,866. Three filters: inside the Amazon biome, officially recognised, and at least 1 hectare. The first removes mostly Peruvian community records outside the area the monitor covers, the second excludes claims that are not enforceable boundaries, and the third drops three digitising artefacts smaller than a single alert pixel.
  
-**Inside the Amazon biome** (`amzbiog == "s"`). The excluded polygons are mostly Andean peasant communities from the Peruvian registry, where there is little forest cover and forest-loss alerts carry no signal. Peru alone accounts for 5,792 of the 7,466 records, largely because its registry lists communities at a much finer granularity than the other countries.
+The polygons are dissolved by `codigo_tis`, since no ID column is unique in the raw layer and several territories appear as multiple polygons. A duplicated key would multiply rows on every merge without raising an error.
  
-**Officially recognised** (`leyenda == "TI con reconocimiento oficial"`). Where recognition is pending or absent, the polygon represents a claim rather than an enforceable boundary, and attributing forest loss to it would be unreliable.
+Full details, with the counts at each step, are in `notebooks/01_explore_territories.ipynb`.
  
-**At least 1 hectare.** This one excludes territories that pass both filters above, so it needs its own justification. An integrated alert pixel covers 0.01 ha at 10 m resolution. Nine polygons in the biome fall below one hectare; three survive the other filters, measuring 0 ha, 0.000011 ha (about 0.11 square metres) and 0.87 ha. They are digitising artefacts in the source data, not places. The script prints them by name and country when it drops them, so the exclusion stays auditable.
+---
+ 
+## How a territory gets flagged
+ 
+The window is the **last seven days** with available data, recalculated on every run.
+ 
+Each territory is compared with its own history around the same time of year: the baseline is the 90th percentile of weekly loss from a four-week window either side of the current week of year. The week being evaluated is excluded from its own baseline, or an extreme week would raise the bar it has to clear.
+ 
+A territory is flagged when **both** conditions are met:
+ 
+- at least **5 ha** of forest loss
+- at least **2× its seasonal baseline**
+**With one exception, and it matters:** a territory whose baseline rests on too little history is judged on the 5 ha alone. There is nothing meaningful to take a ratio against, so requiring one would mean never flagging it. 398 of the 3,866 fall into that group today, down from well over 500 before the history was extended. Each row records which path it took.
+ 
+The ratio says how unusual the loss is; the absolute floor keeps tiny territories with trivial losses off the list. The score that orders the result multiplies the ratio by the square root of hectares lost.
+ 
+**Why normalise by area.** The median territory is 4,192 ha and the largest is 9,537,676. San Pedro recorded 465 alerts in a year against Yanomami's 414,372, but lost 0.136 per cent of itself against Yanomami's 0.053: nearly three times as much, while ranking past position 3,000 in absolute counts.
+ 
+**Why adjust for season.** Median weekly loss is roughly ten times higher in weeks 34 to 43 than in weeks 1 to 22. Akawini in Guyana has a flat baseline of 0.040 and a seasonal one of 2.616: under a flat baseline it ranked fourth with a ratio of 13.5, adjusted it comes out at 0.21, well under what it normally loses in August. The adjustment moves territories in both directions.
+ 
+**Why confidence is stored, not filtered.** Alerts start as `nominal` and mature over three to four months. Filtering to confirmed alerts captured a shrinking share of the data the more recent it was: 96 per cent of the current week is still `nominal`, against 3 to 16 per cent at five months old. Storing the level keeps the rule identical for recent and historical data.
+ 
+---
+ 
+## Where inside the territory
+ 
+A flagged territory is a polygon, and some of them are enormous. Saying that Alto Rio Negro lost 1,850 hectares across eight million is not something a field team can act on.
+ 
+The alerts behind that figure are individual 10 m pixels with their own coordinates, so they cluster into the places the loss is concentrated in. For each flagged territory the pipeline fetches those coordinates for the current window, groups them with DBSCAN at a two-kilometre radius, and stores the ten largest with their centre, area and share.
+ 
+In most territories the top few hotspots account for nearly all the loss: 92 per cent in one place for Jurubaxi-Téa, 80 per cent for Curripaco. In the largest ones the loss is more dispersed and the leading hotspot covers a fifth or a half, which is still the difference between a point to visit and a polygon the size of a country.
+ 
+Only flagged territories are queried, and only for the current window: around sixty requests rather than 3,866. GFW caps a response at 6 MB, so a territory with hundreds of thousands of alerts in one week is asked for a day at a time.
+ 
+**One caveat, visible on the page.** A hotspot's hectares are its pixel count at 0.01 ha each, while the territory's figure above it is GFW's own `SUM(area__ha)`. The two are close but will not reconcile exactly, and the share shown is a share of alerts rather than of hectares.
+ 
+---
+ 
+## Rising trajectories
+ 
+The weekly criterion finds events, not processes. A territory that deteriorates gradually raises its own baseline as it goes: measured across the whole archive, a baseline rises by a factor of 1.95 after a flagged week and stays flat after a normal one.
+ 
+A second criterion fits a line over the previous seven windows of each territory's anomaly ratio, excluding the current one. Weeks a territory lost nothing are read as zero rather than as gaps, which is what lets it find the shape that matters: a territory that was quiet and then started losing.
+ 
+Around 60 to 80 territories a week qualify, almost none of them on the flagged list.
+ 
+### Why there is no predictive model
+ 
+Across the settled historical windows, only 9.4 per cent of flagged territories are flagged again the following week, against a base rate of 0.5 per cent.
+ 
+Deforestation events are finite: once a stretch is cleared, that forest cannot be lost again. GFW does not re-alert the same pixel once it reaches high confidence. And the baseline adapts, as above. A classifier trained on this would reach 99.5 per cent accuracy by answering "no" every time.
+ 
+Separating fire from clearing was tried and measured too: of 246 hotspots cross-referenced against a month of NASA FIRMS detections, 3 per cent had active fire within two kilometres. What this system detects in these territories is mostly clearing rather than burning.
+ 
+---
+ 
+## Architecture
+ 
+The database is the source of truth. The daily pipeline does not depend on anything in `data/`.
+ 
+```text
+GitHub Actions (daily)
+      │
+      ├── fetch_alerts.py       refreshes the last 30 days of alerts
+      ├── detect_anomalies.py   builds the ranking, appends to the archive
+      ├── detect_trends.py      fits the rising trajectories
+      └── detect_hotspots.py    locates the loss inside flagged territories
+                  │
+                  ▼
+              Neon DB  ──────▶  PHP web app
+```
+ 
+| Table | Rows | What it holds |
+|---|---|---|
+| `territories` | 3,866 | Name, country, area, population, map point |
+| `geostores` | 3,866 | The GFW ID for each territory |
+| `alerts_daily` | ~1,320,000 | One row per territory, day and confidence level |
+| `alerts_weekly` | ~843,000 | The weekly series behind the charts, zeros included |
+| `rankings` | 3,866 | The current rolling window |
+| `rankings_history` | ~500,000 | One row per territory per calendar week, where it lost something |
+| `trends` | ~80 | Territories on a rising trajectory |
+| `hotspots` | ~250 | Where inside the flagged territories the loss happened |
+| `field_reports` | grows | What people found when they went to look |
+ 
+**Two tables, never one query.** `rankings` holds the rolling seven-day window the site shows. `rankings_history` holds calendar weeks, one row per territory per week, and `window_end` there is always a Sunday. Writing a rolling window into the archive once put six overlapping rows beside every real one, and anything reading a run of windows as a series read the same days over and over. A `UNIQUE` and a `CHECK` in the schema now make that impossible rather than merely unintended.
+ 
+**The archive stores only territories that lost something.** A territory with no loss has no ratio, no score and no place in any ranking; the full series, zeros and all, is in `alerts_weekly`. Archiving all 3,866 every week is what took the database past its storage limit.
+ 
+**Refreshing replaces rather than appends.** Each run re-queries the last 30 days and overwrites those rows, because alerts are revised upward as confidence improves and late detections keep appearing for dates already covered. Only territories that returned successfully are cleared, so a network error cannot silently delete data. The run fails outright if the most recent alert is more than `MAX_LAG_DAYS` old, which is what catches a feed that has stopped advancing rather than one that is merely behind.
+ 
+---
+ 
+## The web interface
+ 
+`web/` is a PHP front end over the Neon tables.
+ 
+| Page | What it shows |
+|---|---|
+| `index.php` | The week's flagged territories, a map, the method, and everything that lost forest |
+| `map.php` | Every territory on one map, with a synchronised list |
+| `territory.php` | One territory: current figures, where inside it the loss was, two years of weekly history, and the field report form |
+| `history.php` | Any past window, the most frequently flagged, and the rising ones |
+ 
+`data.php` is the only file that knows about the database; everything else calls its functions. `api.php` maps a query string onto them and returns JSON, so the page shell renders immediately while Neon wakes from idle. The site follows the operating system's light or dark setting, with a header button to override it.
+ 
+### Field reports
+ 
+Anyone who checked an alert on the ground can record what they found. This is the only part of the site that writes, and it posts to `report.php` rather than `api.php`, which stays read-only.
+ 
+**Nothing published without review.** A report is stored with `approved = false` and does not reach the page until that is set by hand. The note is free text from an anonymous visitor, shown under the name of a real territory, so it is held back rather than taken down afterwards.
+ 
+```sql
+-- what is waiting
+SELECT id, territory_id, verdict, note, reporter, submitted_at
+FROM field_reports WHERE NOT approved ORDER BY submitted_at DESC;
+ 
+-- publish one
+UPDATE field_reports SET approved = TRUE WHERE id = 1;
+```
+ 
+Three defences, cheapest first: a trap field the stylesheet moves off screen, which a bot fills and a person never sees; length and value checks server-side, whatever the form said; and five reports an hour per address, counted inside the same transaction as the insert so concurrent sends cannot slip past it.
+ 
+### Credentials and the web role
+ 
+PHP queries Postgres server-side and the client receives names and numbers. The site connects as `web_reader`, which reads what the pipeline publishes and writes nowhere except `field_reports`. The `SELECT` on that table is column-level, so `reporter` never leaves the database and the site cannot publish a name even by mistake.
+ 
+The role is defined in `sql/constraints.sql`. Set a password of your own before running it, and point the site's `NEON_URL` at that role rather than the owner.
+ 
+---
+ 
+## Running it
+ 
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+ 
+A `.env` in the project root with two values. The GFW key comes from `data-api.globalforestwatch.org`; the Neon URL needs the owner role, since the pipeline writes.
  
 ```
-raw polygons: 7466
-after scope filters: 3876
-after dissolve: 3869
-dropping 3 polygons below 1.0 ha:
- codigo_tis                 nombre   pais  area_sig_h
-      13062        Massara Tract B Guyana    0.000011
-      45435 Ampi Sacha Mishquiyacu   Perú    0.865650
-      45596  Santa Rosa de Firmeza   Perú    0.000000
-after area filter: 3866
+GFW_API_KEY=...
+NEON_URL=postgresql://user:password@host/dbname?sslmode=require
 ```
  
-### Primary key
+### Database setup
  
-None of the three candidate ID columns is unique in the raw layer: `codigo_tis` has 7,457 distinct values out of 7,466, `featureid` 7,188, `id_tiunico` 7,041.
+**Run this first, against an empty database.** The pipeline truncates and appends rather than replacing tables, which is what lets the keys and constraints survive each run, but it also means the tables have to exist before anything else runs.
  
-Inspecting the duplicates showed that most are single territories split across several polygons. Cuyabeno-Imuya in Ecuador appears seven times: two rows with real area and five slivers. The two genuine conflicts, both in Venezuela, fall outside the legal-recognition filter on their own.
+```bash
+psql "$NEON_URL" -f sql/schema.sql
+```
  
-So the polygons are dissolved by `codigo_tis` with areas summed, after which the key is unique and asserted as such. This matters more than it looks: later stages merge alert counts against a stored history, and a duplicated key would multiply rows on every merge and inflate the counts without raising an error.
+`sql/constraints.sql` is the other half of the same structure, for a database whose tables were created before the schema existed. On a fresh database it is not needed, except for the `web_reader` role at the end of it.
  
-### Geostores
+### First-time load
  
-The query endpoint takes a geometry, but territory polygons are too large to resend on every request. GFW provides a geostore endpoint: upload a geometry once, get back an ID, then query by ID from then on.
+Download the RAISG `Tis_TerritoriosIndigenas` shapefile into `data/raw/`, then:
  
-The concern was whether the largest polygons would be accepted. Yanomami serialises to 2.4 MB of GeoJSON and was accepted as-is, so no simplification is needed anywhere and territory boundaries stay exact. That matters: simplifying moves the boundary, which would mean counting alerts that fall outside it.
+```bash
+python src/build_territories.py        # ~1 min
+python src/create_geostores.py         # ~80 min
+python src/fetch_alerts.py --backfill  # ~35 min
+python src/seed_neon.py                # uploads the static tables
+python src/backfill_rankings.py        # evaluates every past week
+```
  
-Registration runs sequentially, roughly 80 minutes for all 3,866 territories. Parallelising was considered and rejected: this is a one-off run and the extra complexity is not worth 80 minutes. Each row is written as it goes, so an interrupted run resumes where it stopped.
+### Daily
  
-Alert fetching is a different case and does run in parallel. A two-year query averages 4.87 s per territory, which is 5.2 hours sequentially against 39 minutes with eight workers. Shrinking the date range would not help: a territory with no alerts at all still takes 4 s, so most of the cost is per-request overhead rather than data volume.
+What GitHub Actions runs, from `.github/workflows/daily.yml`. Credentials are repository secrets.
  
-### Confidence levels are stored, not filtered
+```bash
+python src/fetch_alerts.py
+python src/detect_anomalies.py
+python src/detect_trends.py
+python src/detect_hotspots.py
+```
  
-Alerts come in three tiers: `nominal`, `high` and `highest`. An alert starts at the lowest tier and is upgraded as further satellite passes confirm it, reaching `highest` only when several detection systems agree on the same pixel.
+### The website
  
-The first version filtered to `high` and `highest`, on the reasoning that a false positive costs an organisation a wasted field trip. That was reverted after July 2026 came out five times lower than July 2025. Measured across the five largest territories, the share of alerts still at `nominal` runs 96 per cent for the current week and 3 to 16 per cent by five months old: full maturation takes three to four months.
+PHP 7.4 or later with the `pdo_pgsql` extension, and `NEON_URL` in the environment with the read-only role. PHP does not read `.env` files on its own, hence the variable on the command line:
  
-So the filter captured a shrinking share of alerts the more recent the data. Comparing the current week against the same week a year earlier was not a comparison at all, because the present would always look calm. For a temporal comparison, consistency matters more than precision: `nominal` false positives exist in both present and past and cancel out, whereas filtering introduces a bias that grows with recency. Confidence became a stored column instead.
+```bash
+cd web
+NEON_URL="$(grep '^NEON_URL=' .env | cut -d= -f2-)" php -S 127.0.0.1:8000
+```
  
-### Why alert counts get normalised by area
- 
-Areas are heavily right-skewed. Inside the biome the median territory covers 4,192 ha and the mean covers 53,147 ha, a factor of thirteen, with the largest at 9,537,676 ha. Ranking by raw alert count would return the same handful of giants every time.
- 
-This is not hypothetical. San Pedro is the median-sized territory at 4,193 ha and recorded 465 alerts in a year against Yanomami's 414,372, but normalised by area it lost 0.136 per cent of itself against Yanomami's 0.053: nearly three times as much, while ranking somewhere past position 3,000 in absolute counts.
+Without `NEON_URL` the site renders its shell, every panel fails, and the header says so. There is no fallback data source.
  
 ---
  
 ## Working with the GFW Data API
  
-Three quirks that cost time and are not documented upstream.
+Five things that cost time and are not documented upstream.
  
-**The SQL dialect rejects `IN`**, returning `Unsupported filter operator: in`. Multi-value filters have to be written as chained `OR` conditions.
+**The dataset version has to be resolved at run time, not pinned.** GFW publishes a new version daily and retires the old ones after a few weeks. A pinned version first stops receiving data, silently, while the pipeline keeps succeeding and the query keeps returning rows that are not new; then it disappears and every request 404s. The backfill and the daily refresh both resolve the latest version.
  
-**It ignores the alias on `COUNT(*)`** and always returns the column as `count`, although it honours aliases everywhere else.
+**The SQL dialect rejects `IN`**, returning `Unsupported filter operator: in`. Use chained `OR`.
  
-**The dataset version has to be pinned.** GFW publishes a new version every day, so `latest` would make results change between runs without warning. Pinning also avoids a redirect that silently converts a `POST` into a `GET` and discards the request body.
+**It ignores the alias on `COUNT(*)`** and always returns the column as `count`, though it honours aliases everywhere else.
+ 
+**`MAX()` over an empty result set** returns null and breaks the query with `object of type 'NoneType' has no len()`. Territories with no alerts hit this.
+ 
+**A response is capped at 6 MB** and fails rather than truncating, with `Response payload size exceeded maximum allowed payload size`. There is no row count to check in advance; the only way to know is to ask and be refused, then split the request.
  
 ---
  
 ## Repository layout
  
 ```
-.
-├── README.md
-├── src/
-│   ├── build_territories.py     # stage 1: raw shapefile to working dataset
-│   ├── create_geostores.py      # stage 2: register geometries with GFW
-│   └── fetch_alerts.py          # stage 3: pull daily alerts per territory
-├── notebooks/
-│   ├── 01_explore_territories.ipynb   # scope decisions
-│   ├── 02_geostores.ipynb             # geometry size and timing checks
-│   ├── 03_alerts.ipynb                # query design and confidence levels
-│   ├── 04_history.ipynb               # validation of the fetched history
-│   └── 05_anomalies.ipynb             # baseline, seasonality, ranking
-├── data/                        # not committed
-│   ├── raw/
-│   └── processed/
-├── requirements.txt
-└── .gitignore
+├── src/          the pipeline: territories, geostores, alerts, anomalies,
+│                 trends, hotspots, plus seed_neon and backfill_rankings
+├── sql/          schema.sql, and constraints.sql for an existing database
+├── notebooks/    the analysis behind each decision, 01 to 05
+├── web/          the PHP front end
+├── data/         not committed
+└── .github/workflows/daily.yml
 ```
  
 ---
  
-## Known limitations
+## Scope and limitations
  
-**Not real time.** Integrated alerts are published once a day, and there is a further lag between clearing happening on the ground and a satellite detecting it, depending on cloud cover.
+**Timing.** Alerts are published once a day, and a clearing takes a few more days to appear in the dataset depending on cloud cover. The window ends on the most recent day with data rather than on today.
  
-**The 2024 fire season contaminates the baseline.** Seventy per cent of all forest loss in the two-year window falls in three months of 2024, with Brazil and Bolivia accounting for 96.5 per cent of that peak. Single-day figures reach 20.9 per cent of a territory's own area, which no clearing operation produces: these are burn scars, which satellites register as tree cover loss. A baseline built on these two years treats a catastrophic fire season as normal October behaviour. Resolving it means either more years of history or using GFW's alert-driver classification to separate cause.
+**Detection is uneven day to day.** A cloudy day produces nothing and a clear one produces a backlog: one territory went from 3 alerts to 4,522 three days later. Working in seven-day windows rather than single days smooths that out.
  
-**Territory density varies enormously.** Yanomami records alerts in every week of the two years; the median territory has 73 active weeks out of 107, and 548 territories have too little history for a percentile to mean anything. Those are handled by an absolute loss threshold rather than a baseline comparison.
+**The 2024 fire season is diluted, not removed.** Extending the record from two years to four halved its weight in every August-to-October baseline: the same nine extreme weeks now sit among 36 observations rather than 18, so the 90th percentile falls below them rather than inside them. It still contributes about a quarter of those seasonal windows, which makes August-to-October baselines the least reliable of the year.
  
-**Seasonality is real and had to be modelled.** Median weekly loss runs between 0.000 and 0.0061 in weeks 1 to 22 and between 0.014 and 0.0535 in weeks 34 to 43, roughly a tenfold difference between wet and dry season. It shows up in the median and not only the mean, so it is a genuine pattern rather than an artefact of 2024. A flat baseline overstates anomalies in August.
+**The two history thresholds were calibrated against a shorter record.** `MIN_ACTIVE_WEEKS` and `SETTLED_AFTER_WEEKS` are both 20, chosen when the record was 107 weeks and now running against 218. They no longer mean what they meant: far more territories clear 20 active weeks, so the sparse group has shrunk to 398. Worth revisiting as a fraction of available history rather than a constant.
  
-**Two years is thin for a seasonal model.** Each week of the year has only two observations, widened to about twenty by a four-week window either side. Enough to work with, not enough to be confident about any single week.
+**Territories still vary in how much history they have.** Those 398 fall back to the absolute threshold alone, so for roughly one territory in ten the seasonal comparison is not doing the work.
  
-**Alerts get revised.** GFW reclassifies alerts as confidence improves, so each refresh has to re-query a trailing window and overwrite rather than simply append.
+**The thresholds are choices.** The 90th percentile, the 5 ha floor and the ratio of 2 were tuned against what a small team could realistically act on. They sit as constants at the top of the script so they are easy to revisit.
  
-**Geometry detail is high.** 58 MB for 3,866 polygons is good for spatial queries and too heavy for any interactive map. A simplified copy, or territory centroids, will be needed for the map.
+**Storage.** The database sits at about three quarters of Neon's free tier, and `alerts_daily` grows every day with nothing pruning it. When it fills, writes fail and the daily job stops. The cheapest remedy is dropping the per-confidence detail older than six months, which costs nothing analytically given that alerts mature in three to four.
  
-**An alert is not a verified event.** This is a screening tool for prioritisation, not a substitute for ground verification.
+**A territory with no forest left goes quiet.** Alerts fire on loss of cover, so once there is nothing left to lose there is nothing to detect. That holds for any alert-based system.
+ 
+**An alert points somewhere, it does not confirm anything.** This is a screening tool for prioritisation rather than a substitute for ground verification, and it does not identify a cause or attribute responsibility.
  
 ---
  
@@ -152,4 +271,4 @@ Three quirks that cost time and are not documented upstream.
  
 Territory boundaries: RAISG (Red Amazónica de Información Socioambiental Georreferenciada), <https://www.raisg.org>. Attribution is required by their terms of use.
  
-Deforestation alerts: Global Forest Watch / World Resources Institute.
+Deforestation alerts: Global Forest Watch, integrated deforestation alerts (UMD/GLAD and WUR). Base map tiles: Esri.
