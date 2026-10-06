@@ -15,4 +15,7 @@ NEON_URL = os.getenv("NEON_URL")
 def engine():
     if not NEON_URL:
         raise SystemExit("NEON_URL not found in .env")
-    return create_engine(NEON_URL)
+
+    # Neon can drop idle connections while GFW queries are running.
+    # Check connections before reusing them and recycle old ones.
+    return create_engine(NEON_URL, pool_pre_ping=True, pool_recycle=300)
