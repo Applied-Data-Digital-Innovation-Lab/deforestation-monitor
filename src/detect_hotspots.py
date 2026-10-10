@@ -26,9 +26,10 @@ MIN_ALERTS = 20
 # Keep the largest hotspots.
 TOP_N = 10
 
-# Hotspot area is pixel count × 0.01 ha (10 m x 10 m pixels).
-# Territory totals use GFW's measured SUM(area__ha), so the two won't
-# match exactly. The API doesn't expose measured area for each cluster.
+# Hotspot area is pixel count × 0.01 ha (10 m × 10 m pixels).
+# Territory totals use GFW's measured SUM(area__ha).
+# The API won't return measured area and coordinates together, so clusters
+# have to use the pixel count.
 HA_PER_ALERT = 0.01
 
 
