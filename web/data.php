@@ -682,11 +682,12 @@ function dm_pg_frequent(): array
     // rankings_history only, and every window of it at once — the one query
     // in this file that reads the series across windows rather than one.
     //
-    // baseline_settled is filtered row by row, which is what a per-territory
-    // count wants: a territory's early weeks are dropped whether or not the
-    // window as a whole was settled. total_lost_ha sums every settled week,
-    // flagged or not — it is what the territory lost over the period, not
-    // only in the weeks it was flagged.
+    // baseline_settled is a property of the window, not of the territory:
+    // the pipeline computes one value per window and writes it to every row
+    // in it. So this drops whole early windows, the same ones for every
+    // territory, rather than each territory's own first weeks. total_lost_ha
+    // sums every settled week, flagged or not — it is what the territory lost
+    // over the period, not only in the weeks it was flagged.
     $rows = dm_pg_query('
         SELECT
             territory_id,
