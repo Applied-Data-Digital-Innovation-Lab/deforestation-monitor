@@ -492,6 +492,144 @@
     return order.map(function (day) { return byDay[day]; });
   }
 
+  /* ---------- the band, week by week ----------
+   *
+   * Every week is drawn against its own seasonal baseline, the one the
+   * screening used for it, from rankings_history. A week the archive has no
+   * row for — it lost nothing, so there was nothing to archive — has no
+   * stored baseline, and those are most weeks for many territories.
+   *
+   * The choice for them: short runs are bridged, long runs are left empty.
+   *
+   * A baseline is the 90th percentile of loss in the weeks within four of the
+   * same week of the year, over the history before it. It does not depend on
+   * the week's own loss, and neighbouring weeks share most of their seasonal
+   * window — two weeks four apart still share five of its nine weeks of the
+   * year — so across a run of up to BAND_BRIDGE_WEEKS a straight line between
+   * the stored values either side is close to what the screening would have
+   * computed. Past that the windows have drifted apart, and a line would be
+   * drawing a season the data never stated: the band breaks instead.
+   *
+   * Only gaps between two stored baselines are bridged. A week that WAS
+   * screened and had no baseline (null, or 0, which means the same) is a
+   * real absence and breaks the band; so does the start or end of the series,
+   * which includes the week still in progress — it has not been archived. */
+  var BAND_BRIDGE_WEEKS = 4;
+
+  function weeklyBaselines(history, territoryHa) {
+    /* undefined: no archive row. null: archived, no baseline. number: ha. */
+    var stored = history.map(function (row) {
+      if (!row.screened) return undefined;
+      return DM.baselineHa(row.seasonal_baseline, territoryHa);
+    });
+
+    var band = stored.map(function (v) { return typeof v === 'number' ? v : null; });
+
+    var i = 0;
+    while (i < stored.length) {
+      if (stored[i] !== undefined) { i++; continue; }
+
+      var from = i;
+      while (i < stored.length && stored[i] === undefined) i++;
+
+      var before = from - 1;
+      var after = i;
+      if (i - from <= BAND_BRIDGE_WEEKS &&
+          before >= 0 && typeof stored[before] === 'number' &&
+          after < stored.length && typeof stored[after] === 'number') {
+        for (var k = from; k < after; k++) {
+          var f = (k - before) / (after - before);
+          band[k] = stored[before] + (stored[after] - stored[before]) * f;
+        }
+      }
+    }
+
+    return {
+      band: band,
+      any: band.some(function (v) { return v !== null; })
+    };
+  }
+
+  /* Draws the band and the threshold under the bars.
+   *
+   * A plugin rather than two line datasets, for two reasons. A line needs
+   * two points to draw anything, so a week with a baseline between two weeks
+   * without one — the most common shape in a territory with sporadic loss,
+   * and exactly the week the band matters for — would draw nothing at all.
+   * And a baseline is a level held for a whole week, so each week gets a flat
+   * step the width of its own slot, joined by a riser to the next, rather
+   * than a line sloping from one week's centre to the next.
+   *
+   * Colours are read from COLOR at draw time, so a theme change only needs
+   * the chart.update() that paintChart() already makes. */
+  function bandPlugin(band) {
+    function slot(chart, i) {
+      var x = chart.scales.x;
+      var half = (x.right - x.left) / band.length / 2;
+      var centre = x.getPixelForValue(i);
+      return { left: centre - half, right: centre + half };
+    }
+
+    /* One path per unbroken run of weeks, so the dashes flow along it
+       instead of restarting at every week. */
+    function stroke(chart, factor, color, width, dash) {
+      var ctx = chart.ctx;
+      var y = chart.scales.y;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(dash);
+
+      var open = false;
+      band.forEach(function (v, i) {
+        if (v === null) {
+          if (open) { ctx.stroke(); open = false; }
+          return;
+        }
+        var s = slot(chart, i);
+        var py = y.getPixelForValue(v * factor);
+        if (!open) {
+          ctx.beginPath();
+          ctx.moveTo(s.left, py);
+          open = true;
+        } else {
+          ctx.lineTo(s.left, py);    // the riser at the week boundary
+        }
+        ctx.lineTo(s.right, py);
+      });
+      if (open) ctx.stroke();
+    }
+
+    return {
+      id: 'dmBand',
+      beforeDatasetsDraw: function (chart) {
+        var ctx = chart.ctx;
+        var area = chart.chartArea;
+        var y = chart.scales.y;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+        ctx.clip();
+
+        ctx.fillStyle = COLOR.sage;
+        band.forEach(function (v, i) {
+          if (v === null) return;
+          var s = slot(chart, i);
+          /* On the log scale a baseline below the axis minimum maps below
+             the floor; clamped, or the rectangle's height goes negative and
+             it paints upward over the chart. */
+          var top = Math.min(y.getPixelForValue(v), area.bottom);
+          ctx.fillRect(s.left, top, s.right - s.left, area.bottom - top);
+        });
+
+        stroke(chart, 1, COLOR.forest, 1, [4, 3]);
+        stroke(chart, 2, COLOR.alert, 1.5, [5, 4]);
+
+        ctx.restore();
+      }
+    };
+  }
+
   function buildChart(t, raw) {
     var history = oneRowPerWeek(raw);
 
@@ -513,11 +651,12 @@
 
     var c = t.current;
 
-    /* Converted to plain hectares so the band, the threshold and the bars
-       share one axis. A baseline of 0 or null means none was established: no
-       band is drawn, rather than one flattened onto the axis that would read
-       as a threshold of zero hectares. */
-    var baselineHa = c ? DM.baselineHa(c.seasonal_baseline, t.territory_ha) : null;
+    /* Each week's own baseline, converted to plain hectares so the band, the
+       threshold and the bars share one axis. Null where the band breaks; see
+       weeklyBaselines(). A baseline of 0 means none was established and
+       breaks the band too, rather than dropping it onto the axis where it
+       would read as a threshold of zero hectares. */
+    var baselines = weeklyBaselines(history, t.territory_ha);
 
     /* Which bar is the evaluated window.
      *
@@ -559,33 +698,8 @@
        changes. `dmRole` is how it finds each dataset. */
     var datasets = [];
 
-    if (baselineHa !== null) {
-      datasets.push({
-        dmRole: 'band',
-        type: 'line',
-        label: 'Its usual level',
-        data: values.map(function () { return baselineHa; }),
-        borderWidth: 1,
-        borderDash: [4, 3],
-        fill: 'origin',
-        pointRadius: 0,
-        pointHitRadius: 0,
-        order: 0
-      });
-      datasets.push({
-        dmRole: 'threshold',
-        type: 'line',
-        label: 'Flagging threshold',
-        data: values.map(function () { return baselineHa * 2; }),
-        borderWidth: 1.5,
-        borderDash: [5, 4],
-        fill: false,
-        pointRadius: 0,
-        pointHitRadius: 0,
-        order: 1
-      });
-    }
-
+    /* The band and the threshold are not datasets: bandPlugin() draws them
+       under the bars, one week-wide step per week. */
     var barsIndex = datasets.length;
     datasets.push({
       dmRole: 'bars',
@@ -603,8 +717,16 @@
 
     Chart.defaults.font.family = SANS;
 
+    /* The band is drawn outside any dataset, so the axis does not know about
+       it: without this a threshold above the tallest bar would run off the
+       top of the chart. A suggestion, so a taller bar still wins. */
+    var bandTop = baselines.band.reduce(function (m, v) {
+      return v === null ? m : Math.max(m, v * 2);
+    }, 0);
+
     chart = new Chart(document.getElementById('history-chart').getContext('2d'), {
       data: { labels: labels, datasets: datasets },
+      plugins: baselines.any ? [bandPlugin(baselines.band)] : [],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -623,6 +745,7 @@
           y: {
             type: 'linear',
             beginAtZero: true,
+            suggestedMax: bandTop > 0 ? bandTop : undefined,
             grid: {},
             border: { display: false },
             title: { display: true, text: 'Hectares lost per week' },
@@ -651,12 +774,18 @@
               afterLabel: function (item) {
                 var lines = [];
                 var pending = item.dataIndex > currentIndex;
+                var row = history[item.dataIndex];
 
-                /* No multiple for a week that has not finished. Its hectares
-                   are still accumulating, so a low ratio would read as loss
-                   having dropped rather than as the week being half-counted. */
-                if (baselineHa !== null && baselineHa > 0 && !pending) {
-                  lines.push(DM.ratio(item.parsed.y / baselineHa) + ' its usual level');
+                /* The multiple the screening itself recorded for this week,
+                   against this week's own baseline — not one worked out here
+                   against another week's. None for a week the archive does
+                   not hold, which includes a bridged week: its band is an
+                   estimate, and a multiple of an estimate would be printed
+                   as if it were a result. None for a week that has not
+                   finished either, whose hectares are still accumulating. */
+                var ratio = !pending && row.screened ? DM.ratio(row.ratio) : null;
+                if (ratio !== null) {
+                  lines.push(ratio + ' its usual level');
                 }
                 if (item.dataIndex === currentIndex) {
                   /* Not "the evaluated window": that is the last seven days
@@ -697,23 +826,20 @@
     var pendingSwatch = document.getElementById('legend-pending');
     if (pendingSwatch) pendingSwatch.hidden = pendingCount === 0;
 
-    chartLegend.hidden = baselineHa === null && pendingCount === 0;
+    chartLegend.hidden = !baselines.any && pendingCount === 0;
     scaleToggle.hidden = false;
-    setCaveat('linear', baselineHa, pendingCount);
-    wireScaleToggle(baselineHa, pendingCount);
+    setCaveat('linear', baselines, pendingCount);
+    wireScaleToggle(baselines, pendingCount);
   }
 
   /* Every colour the chart has, in one place, so creating it and switching
      theme cannot paint it two different ways. Chart.js paints to a canvas,
      which the stylesheet cannot reach; these come from its tokens instead. */
   function paintChart() {
+    /* The band and the threshold read COLOR themselves when bandPlugin()
+       draws them; only the bars carry colours of their own. */
     chart.data.datasets.forEach(function (ds) {
-      if (ds.dmRole === 'band') {
-        ds.borderColor = COLOR.forest;
-        ds.backgroundColor = COLOR.sage;
-      } else if (ds.dmRole === 'threshold') {
-        ds.borderColor = COLOR.alert;
-      } else if (ds.dmRole === 'bars') {
+      if (ds.dmRole === 'bars') {
         ds.backgroundColor = ds.data.map(function (value, i) {
           if (i === currentIndex) return COLOR.alert;
           return i > currentIndex ? COLOR.pending : COLOR.week;
@@ -737,9 +863,8 @@
     chart.update();
   }
 
-  /* The band is drawn flat, and that is a property of this view rather than of
-     the method — spelled out on the page so nobody reads it as the latter. */
-  function setCaveat(scale, baselineHa, pendingCount) {
+  /* What the bars and the band are, in words, under the chart. */
+  function setCaveat(scale, baselines, pendingCount) {
     var parts = [];
 
     /* First of all, because it is about what every bar is. The bars come
@@ -768,22 +893,21 @@
       );
     }
 
-    if (baselineHa !== null) {
+    /* The band used to be this week's baseline drawn flat across every week,
+       which measured a wet-season week against a dry-season level about ten
+       times higher. It is now each week's own, so what is left to say is
+       where it comes from and where it is missing. */
+    if (baselines.any) {
       parts.push(
-        'The shaded band is drawn flat across the whole history. The method ' +
-        'recalculates the seasonal baseline for every week, from a window of ' +
-        'four weeks on either side of it; the rankings table only stores the ' +
-        'value for the week being evaluated, so that single value is what is ' +
-        'drawn here. The flat band is a simplification of this view, not a ' +
-        'property of the method.'
+        'The shaded band is each week’s own seasonal baseline, the level the ' +
+        'screening took as usual for that week, and the dashed line is twice ' +
+        'it, the level that flags a week.'
       );
-      /* The consequence the sentence above leaves out. Loss in the basin is
-         strongly seasonal — the dry-season baseline can be around ten times
-         the wet-season one — so against this one flat level, weeks from the
-         other season are misread. */
       parts.push(
-        'Because the band is this time of year’s level, a wet-season week ' +
-        'set against a dry-season baseline looks quieter than it was.'
+        'A baseline is only stored for weeks with recorded loss. Runs of up to ' +
+        BAND_BRIDGE_WEEKS + ' weeks without one are bridged between the ' +
+        'weeks on either side; where the band breaks, the run was longer, or ' +
+        'no baseline could be established.'
       );
     } else {
       parts.push('No seasonal baseline is stored for this territory, so no band is drawn.');
@@ -802,7 +926,7 @@
 
   /* A single week can be 30 times the size of every other bar, which is the
      point — but it flattens the history. The log view restores it. */
-  function wireScaleToggle(baselineHa, pendingCount) {
+  function wireScaleToggle(baselines, pendingCount) {
     var buttons = scaleToggle.querySelectorAll('button');
 
     Array.prototype.forEach.call(buttons, function (button) {
@@ -817,7 +941,7 @@
         chart.options.scales.y.beginAtZero = scale === 'linear';
         chart.update();
 
-        setCaveat(scale, baselineHa, pendingCount);
+        setCaveat(scale, baselines, pendingCount);
       });
     });
   }

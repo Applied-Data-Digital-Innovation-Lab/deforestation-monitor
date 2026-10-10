@@ -138,6 +138,10 @@ function dm_territory(int $territory_id, ?string $window = null): ?array
 /**
  * Weekly history for one territory, oldest week first.
  * Zeros in the data are real zeros — weeks with no loss — and are kept.
+ *
+ * Each week also carries the seasonal baseline and ratio it was screened
+ * with, from rankings_history; weeks the archive does not hold (no loss, or
+ * not archived yet) carry null and `screened` false.
  */
 function dm_history(int $territory_id): array
 {
@@ -560,12 +564,32 @@ function dm_pg_history(int $territory_id): array
     // The later stamp wins rather than the sum: lost_ha is that week's total,
     // not a daily increment, so adding two writes of it would double-count,
     // and the newest write is the most complete.
+    //
+    // Each week carries its own seasonal baseline from rankings_history, so
+    // the chart can draw the band each week was actually judged against
+    // instead of this week's level drawn flat across all of them. The archive
+    // stores calendar weeks keyed by their Sunday, and alerts_weekly keys the
+    // same weeks by their Monday, so a week matches the archive row whose
+    // window_end falls on its seventh day. A range rather than `::date =`, so
+    // a time of day on either stamp cannot break the match and the
+    // (window_end, territory_id) key can still be used to find the row.
+    //
+    // LEFT JOIN, because the archive keeps only weeks with recorded loss: a
+    // week with none, or one not archived yet, comes back with `screened`
+    // false and no baseline, which the chart handles rather than guesses at.
     $rows = dm_pg_query('
-        SELECT DISTINCT ON (week::date)
-               week, lost_ha, lost_per_1000ha
-        FROM alerts_weekly
-        WHERE territory_id = :id
-        ORDER BY week::date ASC, week DESC
+        SELECT DISTINCT ON (w.week::date)
+               w.week, w.lost_ha, w.lost_per_1000ha,
+               h.seasonal_baseline,
+               h.ratio,
+               (h.territory_id IS NOT NULL) AS screened
+        FROM alerts_weekly w
+        LEFT JOIN rankings_history h
+               ON h.territory_id = w.territory_id
+              AND h.window_end >= w.week + INTERVAL \'6 days\'
+              AND h.window_end <  w.week + INTERVAL \'7 days\'
+        WHERE w.territory_id = :id
+        ORDER BY w.week::date ASC, w.week DESC
     ', [':id' => $territory_id]);
 
     return array_map('dm_shape_week', $rows);
@@ -898,12 +922,20 @@ function dm_shape_territory(array $r): array
     ];
 }
 
+/**
+ * One week of a territory's series. `seasonal_baseline` (per 1,000 ha, as
+ * stored) and `ratio` are that week's own, from rankings_history, and null
+ * when `screened` is false — the archive has no row for the week.
+ */
 function dm_shape_week(array $r): array
 {
     return [
-        'week'            => dm_text($r['week'] ?? null),
-        'lost_ha'         => dm_float($r['lost_ha'] ?? 0) ?? 0.0,
-        'lost_per_1000ha' => dm_float($r['lost_per_1000ha'] ?? 0) ?? 0.0,
+        'week'              => dm_text($r['week'] ?? null),
+        'lost_ha'           => dm_float($r['lost_ha'] ?? 0) ?? 0.0,
+        'lost_per_1000ha'   => dm_float($r['lost_per_1000ha'] ?? 0) ?? 0.0,
+        'seasonal_baseline' => dm_float($r['seasonal_baseline'] ?? null),
+        'ratio'             => dm_float($r['ratio'] ?? null),
+        'screened'          => dm_bool($r['screened'] ?? false),
     ];
 }
 
