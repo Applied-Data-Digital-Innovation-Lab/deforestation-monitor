@@ -1589,7 +1589,7 @@ table.data .rank {
 
 /* ---------- history.php ---------- */
 
-/* The two years at a glance. Short on purpose: it is context for the week
+/* The full record at a glance. Short on purpose: it is context for the week
    picked underneath it, not the subject of the page. */
 .series { margin: 26px 0 34px; }
 

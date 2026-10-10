@@ -441,7 +441,7 @@
   DM.replace(seriesState, [
     el('div', { class: 'state' }, [
       el('span', { class: 'spinner' }),
-      el('span', { text: 'Loading the two years…' })
+      el('span', { text: 'Loading every week on record…' })
     ])
   ]);
 

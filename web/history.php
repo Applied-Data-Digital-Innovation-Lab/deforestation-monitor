@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * history.php — the same screening, run against every week of the two years.
+ * history.php — the same screening, run against every week on record.
  *
  * Everything here reads `rankings_history`, which is filled separately and does
  * not move. `rankings` — the window being evaluated now, rewritten daily — is
@@ -34,8 +34,8 @@ dm_head('History', 'history', [
   <div class="page-head">
     <h1>Every week, re-ranked</h1>
     <p class="page-note">
-      The screening rerun for each of the two years&rsquo; seven-day windows,
-      not just the current one. Pick a week to see what it flagged.
+      The screening rerun for every seven-day window on record, not just the
+      current one. Pick a week to see what it flagged.
     </p>
   </div>
 
@@ -129,7 +129,7 @@ dm_head('History', 'history', [
     </div>
     <p class="band-note">
       The weekly ranking is a photograph of one week. This is which
-      territories keep appearing in it, week after week, across the two years.
+      territories keep appearing in it, week after week, across the full record.
     </p>
 
     <!-- The same list component as the week's ranking above, with the
@@ -146,7 +146,7 @@ dm_head('History', 'history', [
     </div>
 
     <!-- Kept with the list, not in the footer: without it the count at the
-         top of this table reads as a two-year tally, when the first weeks of
+         top of this table reads as a tally of the full record, when the first weeks of
          the series are deliberately not in it. -->
     <p class="panel-foot">
       <span>

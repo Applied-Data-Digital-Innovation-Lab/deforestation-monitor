@@ -102,7 +102,10 @@ endif;
       <div id="chart-state"></div>
 
       <div class="chart-legend" id="chart-legend" hidden>
-        <span><i class="swatch swatch-current"></i> Current window</span>
+        <!-- The same words as the bar's tooltip. Not "current window": the
+             figures at the top are the last seven days with data, and this
+             bar is a calendar week. -->
+        <span><i class="swatch swatch-current"></i> Most recent full week</span>
         <span><i class="swatch swatch-week"></i> Earlier weeks</span>
         <!-- Shown only when the series runs past the evaluated window. -->
         <span id="legend-pending" hidden><i class="swatch swatch-pending"></i> Not yet evaluated</span>

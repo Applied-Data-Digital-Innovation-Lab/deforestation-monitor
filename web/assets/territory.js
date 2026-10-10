@@ -659,9 +659,23 @@
                   lines.push(DM.ratio(item.parsed.y / baselineHa) + ' its usual level');
                 }
                 if (item.dataIndex === currentIndex) {
-                  lines.push('The evaluated window');
+                  /* Not "the evaluated window": that is the last seven days
+                     with data, which rarely starts on a Monday. This bar is
+                     the week containing the window's first day, and since
+                     that week ends no later than the last day the rankings
+                     have data for, it is the latest Monday-to-Sunday week
+                     they cover. */
+                  lines.push('Most recent full week');
+                } else if (pending && item.dataIndex === history.length - 1) {
+                  /* The last bar after it is the week the latest data falls
+                     in, which has begun and not ended. */
+                  lines.push('Week still in progress');
                 } else if (pending) {
-                  lines.push('Not part of the evaluated window');
+                  /* Only when alerts_weekly has run more than a week ahead of
+                     `rankings` — the detection step not having run — are
+                     there pale bars before the last one. Those weeks are
+                     complete; they have just not been screened. */
+                  lines.push('Full week, not yet screened');
                 }
                 return lines.length ? lines : null;
               }

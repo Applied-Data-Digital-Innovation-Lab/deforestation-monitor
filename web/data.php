@@ -546,8 +546,9 @@ function dm_pg_territory(int $territory_id, ?string $window = null): ?array
 
 function dm_pg_history(int $territory_id): array
 {
-    // Always filtered by territory_id — alerts_weekly holds ~420,000 rows and
-    // is never queried unfiltered.
+    // Always filtered by territory_id — alerts_weekly holds about 843,000 rows
+    // (October 2026), gains a row per territory every week, and is never
+    // queried unfiltered.
     //
     // DISTINCT ON because nothing in the table guarantees one row per week.
     // `week` is a timestamp rather than a date, and the pipeline rewrites this

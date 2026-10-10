@@ -124,7 +124,7 @@ GitHub Actions (daily)
 |---|---|
 | `index.php` | The week's flagged territories, a map, the method, and everything that lost forest |
 | `map.php` | Every territory on one map, with a synchronised list |
-| `territory.php` | One territory: current figures, where inside it the loss was, two years of weekly history, and the field report form |
+| `territory.php` | One territory: current figures, where inside it the loss was, its full weekly history, and the field report form |
 | `history.php` | Any past window, the most frequently flagged, and the rising ones |
  
 `data.php` is the only file that knows about the database; everything else calls its functions. `api.php` maps a query string onto them and returns JSON, so the page shell renders immediately while Neon wakes from idle. The site follows the operating system's light or dark setting, with a header button to override it.
