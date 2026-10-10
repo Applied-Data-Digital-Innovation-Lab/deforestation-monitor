@@ -157,11 +157,12 @@ def main() -> None:
          "alerts", "lost_ha", "share_pct"]
     ]
 
+    # Keep the truncate and load in one transaction. If the load fails,
+    # the old data is restored instead of leaving the site empty.
     with eng.begin() as conn:
         conn.execute(text("TRUNCATE hotspots"))
-
-    hotspots.to_sql("hotspots", eng, if_exists="append", index=False,
-                    chunksize=5000, method="multi")
+        hotspots.to_sql("hotspots", conn, if_exists="append", index=False,
+                        chunksize=5000, method="multi")
 
     print(f"\n{len(hotspots)} hotspots across "
           f"{hotspots['territory_id'].nunique()} territories")

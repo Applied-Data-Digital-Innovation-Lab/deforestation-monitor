@@ -180,24 +180,24 @@ def main() -> None:
 
     eng = engine()
 
+    # Keep the truncate and insert in one transaction so a failed load
+    # doesn't leave the site with an empty table.
     with eng.begin() as conn:
         conn.execute(text("TRUNCATE rankings"))
-
-    result.reset_index().to_sql(
-        "rankings", eng, if_exists="append", index=False,
-        chunksize=5000, method="multi",
-    )
+        result.reset_index().to_sql(
+            "rankings", conn, if_exists="append", index=False,
+            chunksize=5000, method="multi",
+        )
     print(f"\nwrote {len(result):,} rows to rankings")
 
     with eng.begin() as conn:
         conn.execute(text("TRUNCATE alerts_weekly"))
-
-    weekly[["territory_id", "week", "area_ha", "lost_per_1000ha"]].rename(
-        columns={"area_ha": "lost_ha"}
-    ).to_sql(
-        "alerts_weekly", eng, if_exists="append", index=False,
-        chunksize=5000, method="multi",
-    )
+        weekly[["territory_id", "week", "area_ha", "lost_per_1000ha"]].rename(
+            columns={"area_ha": "lost_ha"}
+        ).to_sql(
+            "alerts_weekly", conn, if_exists="append", index=False,
+            chunksize=5000, method="multi",
+        )
     print(f"wrote {len(weekly):,} rows to alerts_weekly")
 
     # rankings uses a rolling seven-day window for the site. The archive stores
@@ -228,15 +228,10 @@ def main() -> None:
             text("DELETE FROM rankings_history WHERE window_end = :w"),
             {"w": week_end},
         )
-
-    archive.to_sql(
-        "rankings_history",
-        eng,
-        if_exists="append",
-        index=False,
-        chunksize=5000,
-        method="multi",
-    )
+        archive.to_sql(
+            "rankings_history", conn, if_exists="append", index=False,
+            chunksize=5000, method="multi",
+        )
     print(
         f"archived {len(archive):,} rows "
         f"for the week ending {week_end.date()}"

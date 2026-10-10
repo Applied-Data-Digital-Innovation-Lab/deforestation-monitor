@@ -155,9 +155,8 @@ def refresh_recent(geostores: pd.DataFrame, start_date: str) -> None:
         deleted = conn.execute(
             stmt, {"start": start_date, "ids": [int(t) for t in fetched]}
         ).rowcount
-
-    fresh.to_sql("alerts_daily", eng, if_exists="append", index=False,
-                 chunksize=5000, method="multi")
+        fresh.to_sql("alerts_daily", conn, if_exists="append", index=False,
+                     chunksize=5000, method="multi")
 
     with eng.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM alerts_daily")).scalar()

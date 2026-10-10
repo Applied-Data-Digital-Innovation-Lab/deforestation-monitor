@@ -47,8 +47,8 @@ def main() -> None:
         # empties the whole database, and the pipeline rebuilds it.
         with eng.begin() as conn:
             conn.execute(text(f"TRUNCATE {name} CASCADE"))
-        df.to_sql(name, eng, if_exists="append", index=False,
-                  chunksize=5000, method="multi")
+            df.to_sql(name, conn, if_exists="append", index=False,
+                      chunksize=5000, method="multi")
 
     with eng.connect() as conn:
         for name in ("territories", "geostores", "alerts_daily"):

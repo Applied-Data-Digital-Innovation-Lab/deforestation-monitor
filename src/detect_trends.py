@@ -95,14 +95,15 @@ def main() -> None:
     print(rising.head(10)[
         ["name", "country", "slope", "r2", "flagged_now"]
     ].round(3).to_string())
-
+    
+    # Keep the truncate and load in one transaction. If the load fails,
+    # the old data is restored instead of leaving the site empty.
     with eng.begin() as conn:
         conn.execute(text("TRUNCATE trends"))
-
-    rising.reset_index().to_sql(
-        "trends", eng, if_exists="append", index=False,
-        chunksize=5000, method="multi",
-    )
+        rising.reset_index().to_sql(
+            "trends", conn, if_exists="append", index=False,
+            chunksize=5000, method="multi",
+        )
 
     print(f"\nwrote {len(rising)} rows to trends")
 

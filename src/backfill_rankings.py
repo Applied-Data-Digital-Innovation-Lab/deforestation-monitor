@@ -39,11 +39,13 @@ def main() -> None:
     print(f"flagged in total: {history['flagged'].sum():,}")
 
     eng = engine()
+
+    # Keep the truncate and load in one transaction. If the load fails,
+    # the old data is restored instead of leaving the site empty.
     with eng.begin() as conn:
         conn.execute(text("TRUNCATE rankings_history"))
-
-    history.to_sql("rankings_history", eng, if_exists="append", index=False,
-                   chunksize=5000, method="multi")
+        history.to_sql("rankings_history", conn, if_exists="append", index=False,
+                       chunksize=5000, method="multi")
 
     print("wrote rankings_history")
 
