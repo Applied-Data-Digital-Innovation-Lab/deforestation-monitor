@@ -37,7 +37,6 @@ A territory is flagged when **both** conditions are met:
 - at least **5 ha** of forest loss
 - at least **2× its seasonal baseline**
 **With one exception, and it matters:** a territory whose baseline rests on too little history is judged on the 5 ha alone. There is nothing meaningful to take a ratio against, so requiring one would mean never flagging it. 398 of the 3,866 fall into that group today, down from well over 500 before the history was extended. Each row records which path it took.
- 
 The ratio says how unusual the loss is; the absolute floor keeps tiny territories with trivial losses off the list. The score that orders the result multiplies the ratio by the square root of hectares lost.
  
 **Why normalise by area.** The median territory is 4,192 ha and the largest is 9,537,676. San Pedro recorded 465 alerts in a year against Yanomami's 414,372, but lost 0.136 per cent of itself against Yanomami's 0.053: nearly three times as much, while ranking past position 3,000 in absolute counts.
@@ -90,7 +89,8 @@ GitHub Actions (daily)
       ├── fetch_alerts.py       refreshes the last 30 days of alerts
       ├── detect_anomalies.py   builds the ranking, appends to the archive
       ├── detect_trends.py      fits the rising trajectories
-      └── detect_hotspots.py    locates the loss inside flagged territories
+      ├── detect_hotspots.py    locates the loss inside flagged territories
+      └── prune_alerts.py       drops daily rows older than 180 days
                   │
                   ▼
               Neon DB  ──────▶  PHP web app
@@ -100,8 +100,8 @@ GitHub Actions (daily)
 |---|---|---|
 | `territories` | 3,866 | Name, country, area, population, map point |
 | `geostores` | 3,866 | The GFW ID for each territory |
-| `alerts_daily` | ~1,320,000 | One row per territory, day and confidence level |
-| `alerts_weekly` | ~843,000 | The weekly series behind the charts, zeros included |
+| `alerts_daily` | ~187,000 | One row per territory, day and confidence level, last 180 days |
+| `alerts_weekly` | ~847,000 | The weekly series behind the charts, zeros included |
 | `rankings` | 3,866 | The current rolling window |
 | `rankings_history` | ~500,000 | One row per territory per calendar week, where it lost something |
 | `trends` | ~80 | Territories on a rising trajectory |
@@ -111,6 +111,8 @@ GitHub Actions (daily)
 **Two tables, never one query.** `rankings` holds the rolling seven-day window the site shows. `rankings_history` holds calendar weeks, one row per territory per week, and `window_end` there is always a Sunday. Writing a rolling window into the archive once put six overlapping rows beside every real one, and anything reading a run of windows as a series read the same days over and over. A `UNIQUE` and a `CHECK` in the schema now make that impossible rather than merely unintended.
  
 **The archive stores only territories that lost something.** A territory with no loss has no ratio, no score and no place in any ranking; the full series, zeros and all, is in `alerts_weekly`. Archiving all 3,866 every week is what took the database past its storage limit.
+ 
+**`alerts_weekly` is no longer derived.** Since `alerts_daily` only keeps 180 days, it holds the only copy of the weekly series before that: `detect_anomalies` recomputes the weeks the daily table still covers and reads the older ones back from it. Truncating it by hand costs a full backfill against GFW.
  
 **Refreshing replaces rather than appends.** Each run re-queries the last 30 days and overwrites those rows, because alerts are revised upward as confidence improves and late detections keep appearing for dates already covered. Only territories that returned successfully are cleared, so a network error cannot silently delete data. The run fails outright if the most recent alert is more than `MAX_LAG_DAYS` old, which is what catches a feed that has stopped advancing rather than one that is merely behind.
  
@@ -150,7 +152,7 @@ Three defences, cheapest first: a trap field the stylesheet moves off screen, wh
  
 PHP queries Postgres server-side and the client receives names and numbers. The site connects as `web_reader`, which reads what the pipeline publishes and writes nowhere except `field_reports`. The `SELECT` on that table is column-level, so `reporter` never leaves the database and the site cannot publish a name even by mistake.
  
-The role is defined in `sql/constraints.sql`. Set a password of your own before running it, and point the site's `NEON_URL` at that role rather than the owner.
+The role is defined in `sql/roles.sql`. Set a password of your own before running it, and point the site's `NEON_URL` at that role rather than the owner.
  
 ---
  
@@ -175,9 +177,10 @@ NEON_URL=postgresql://user:password@host/dbname?sslmode=require
  
 ```bash
 psql "$NEON_URL" -f sql/schema.sql
+psql "$NEON_URL" -f sql/roles.sql
 ```
  
-`sql/constraints.sql` is the other half of the same structure, for a database whose tables were created before the schema existed. On a fresh database it is not needed, except for the `web_reader` role at the end of it.
+`sql/constraints.sql` is the other half of the same structure, for a database whose tables were created before the schema existed. On a fresh database it is not needed. The `web_reader` role lives in `sql/roles.sql`, which runs after the schema.
  
 ### First-time load
  
@@ -200,6 +203,7 @@ python src/fetch_alerts.py
 python src/detect_anomalies.py
 python src/detect_trends.py
 python src/detect_hotspots.py
+python src/prune_alerts.py
 ```
  
 ### The website
@@ -235,8 +239,8 @@ Five things that cost time and are not documented upstream.
  
 ```
 ├── src/          the pipeline: territories, geostores, alerts, anomalies,
-│                 trends, hotspots, plus seed_neon and backfill_rankings
-├── sql/          schema.sql, and constraints.sql for an existing database
+│                 trends, hotspots, prune, plus seed_neon and backfill_rankings
+├── sql/          schema.sql, roles.sql, and constraints.sql for an existing database
 ├── notebooks/    the analysis behind each decision, 01 to 05
 ├── web/          the PHP front end
 ├── data/         not committed
@@ -259,7 +263,7 @@ Five things that cost time and are not documented upstream.
  
 **The thresholds are choices.** The 90th percentile, the 5 ha floor and the ratio of 2 were tuned against what a small team could realistically act on. They sit as constants at the top of the script so they are easy to revisit.
  
-**Storage.** The database sits at about three quarters of Neon's free tier, and `alerts_daily` grows every day with nothing pruning it. When it fills, writes fail and the daily job stops. The cheapest remedy is dropping the per-confidence detail older than six months, which costs nothing analytically given that alerts mature in three to four.
+**Storage.** `alerts_daily` keeps the last 180 days and `src/prune_alerts.py` drops the rest at the end of each daily run, so it settles at around 22 MB instead of growing without bound. The database sits at about half of Neon's free tier. What now grows is `rankings_history`, at roughly 670 KB a week.
  
 **A territory with no forest left goes quiet.** Alerts fire on loss of cover, so once there is nothing left to lose there is nothing to detect. That holds for any alert-based system.
  

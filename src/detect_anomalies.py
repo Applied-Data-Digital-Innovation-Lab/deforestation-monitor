@@ -21,8 +21,8 @@ WINDOW_DAYS = 7
 SETTLED_AFTER_WEEKS = 20   # below this, the baseline rests on too little history
 
 
-def load() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Read the daily alerts and the territory dimension from Neon."""
+def load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Read the daily alerts, the territory dimension and the stored series."""
     eng = engine()
     alerts = pd.read_sql(
         "SELECT territory_id, date, confidence, area_ha, alerts FROM alerts_daily",
@@ -33,17 +33,41 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
         "FROM territories",
         eng,
     )
-    return alerts, territories
+    # Keep the full weekly history here because alerts_daily has a retention
+    # limit. Without it, baselines would only use the last few months.
+    stored = pd.read_sql(
+        "SELECT territory_id, week, lost_ha FROM alerts_weekly",
+        eng, parse_dates=["week"],
+    )
+    return alerts, territories, stored
 
 
-def to_weekly(alerts: pd.DataFrame, territories: pd.DataFrame) -> pd.DataFrame:
-    """One row per territory per week, zeros included."""
+def to_weekly(alerts: pd.DataFrame, territories: pd.DataFrame, stored: pd.DataFrame | None = None,) -> pd.DataFrame:
+    """One row per territory per week, including weeks with no alerts.
+
+    Rebuild recent weeks from daily data and keep older weeks from the
+    stored series, since their daily records have been pruned.
+    """
     alerts = alerts.copy()
     alerts["week"] = alerts["date"].dt.to_period("W").dt.start_time
 
-    weekly = (
+    fresh = (
         alerts.groupby(["territory_id", "week"])["area_ha"].sum().reset_index()
     )
+
+    frames = [fresh]
+    if stored is not None and not stored.empty:
+        # Keep only weeks older than the daily data. Recent weeks are
+        # rebuilt each run, so stale archived values don't carry over.
+        cutoff = fresh["week"].min()
+        older = (
+            stored.loc[stored["week"] < cutoff, ["territory_id", "week", "lost_ha"]]
+            .rename(columns={"lost_ha": "area_ha"})
+        )
+        if not older.empty:
+            frames.insert(0, older)
+
+    weekly = pd.concat(frames, ignore_index=True)
 
     # A week with no alerts is still a real zero. Otherwise, each territory's
     # history would only include weeks when it lost forest, making the baseline
@@ -165,8 +189,8 @@ def score(
 
 
 def main() -> None:
-    alerts, territories = load()
-    weekly = to_weekly(alerts, territories)
+    alerts, territories, stored = load()
+    weekly = to_weekly(alerts, territories, stored)
     result = score(weekly, alerts, territories)
 
     flagged = result[result["flagged"]]

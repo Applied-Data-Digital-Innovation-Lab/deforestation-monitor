@@ -40,3 +40,6 @@ jobs:
         env:
           GFW_API_KEY: ${{ secrets.GFW_API_KEY }}
           NEON_URL: ${{ secrets.NEON_URL }}
+      
+      - name: Prune old alerts
+        run: python src/prune_alerts.py
