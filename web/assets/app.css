@@ -571,8 +571,13 @@ h2 {
    worst case the image can produce. */
 
 .hero {
-  /* ↓ THE ONLY LINE TO CHANGE to swap the photograph. */
-  --hero-photo: url("amazon-river-basin-hero.jpg");
+  /* ↓ THE ONLY LINE TO CHANGE to swap the photograph.
+     The ?v= is by hand: dm_asset() stamps scripts and stylesheets with their
+     modification time, but it cannot reach a URL inside this file. An earlier
+     photograph was also called hero.jpg, so without a new query a browser
+     that cached it keeps showing it. Bump it whenever the file is replaced
+     under the same name. */
+  --hero-photo: url("hero.jpg?v=2026-10-11b");
 
   position: relative;
   display: flex;
@@ -582,12 +587,13 @@ h2 {
   background-image: var(--hero-photo);
   background-size: cover;
 
-  /* An aerial view of the river winding through the canopy, landscape, so
-     the band crops only a strip off the top and bottom. 55% down keeps the
-     meanders — the subject — in the middle of the band and loses the hazy
-     horizon at the top of the frame first, which is the palest part of it
-     and the worst ground for the white copy. */
-  background-position: 50% 55%;
+  /* An aerial view of river channels threading through the canopy, landscape
+     (resized from 4288 × 2848 to 2560 × 1700 at JPEG quality 72: wide enough
+     for a 2,560px screen, and under the .86 veil the compression cannot be
+     seen), so the band crops only a strip off the top and bottom. The
+     water runs across the middle third of the frame, so it is centred: the
+     crop takes canopy off both edges and leaves the channels in the band. */
+  background-position: 50% 50%;
   background-color: #33463C;   /* holds the space while the image loads */
 }
 
