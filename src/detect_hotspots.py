@@ -28,8 +28,8 @@ TOP_N = 10
 
 # Hotspot area is pixel count × 0.01 ha (10 m × 10 m pixels).
 # Territory totals use GFW's measured SUM(area__ha).
-# The API won't return measured area and coordinates together, so clusters
-# have to use the pixel count.
+# GFW only returns area__ha as an aggregate, not alongside coordinates,
+# so hotspot areas are estimates and won't exactly match territory totals.
 HA_PER_ALERT = 0.01
 
 

@@ -36,7 +36,9 @@ A territory is flagged when **both** conditions are met:
  
 - at least **5 ha** of forest loss
 - at least **2× its seasonal baseline**
+
 **With one exception, and it matters:** a territory whose baseline rests on too little history is judged on the 5 ha alone. There is nothing meaningful to take a ratio against, so requiring one would mean never flagging it. 398 of the 3,866 fall into that group today, down from well over 500 before the history was extended. Each row records which path it took.
+
 The ratio says how unusual the loss is; the absolute floor keeps tiny territories with trivial losses off the list. The score that orders the result multiplies the ratio by the square root of hectares lost.
  
 **Why normalise by area.** The median territory is 4,192 ha and the largest is 9,537,676. San Pedro recorded 465 alerts in a year against Yanomami's 414,372, but lost 0.136 per cent of itself against Yanomami's 0.053: nearly three times as much, while ranking past position 3,000 in absolute counts.
@@ -152,8 +154,8 @@ Three defences, cheapest first: a trap field the stylesheet moves off screen, wh
  
 PHP queries Postgres server-side and the client receives names and numbers. The site connects as `web_reader`, which reads what the pipeline publishes and writes nowhere except `field_reports`. The `SELECT` on that table is column-level, so `reporter` never leaves the database and the site cannot publish a name even by mistake.
  
-The role is defined in `sql/roles.sql`. Set a password of your own before running it, and point the site's `NEON_URL` at that role rather than the owner.
- 
+The role is defined in `sql/roles.sql`, which takes the password as a psql variable rather than keeping one in the repository. Point the site's `NEON_URL` at that role rather than the owner.
+
 ---
  
 ## Running it
@@ -177,7 +179,7 @@ NEON_URL=postgresql://user:password@host/dbname?sslmode=require
  
 ```bash
 psql "$NEON_URL" -f sql/schema.sql
-psql "$NEON_URL" -f sql/roles.sql
+psql "$NEON_URL" -v web_reader_password=... -f sql/roles.sql
 ```
  
 `sql/constraints.sql` is the other half of the same structure, for a database whose tables were created before the schema existed. On a fresh database it is not needed. The `web_reader` role lives in `sql/roles.sql`, which runs after the schema.
