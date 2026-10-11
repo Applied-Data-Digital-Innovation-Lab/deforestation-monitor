@@ -141,6 +141,19 @@ def refresh_recent(geostores: pd.DataFrame, start_date: str) -> None:
     fresh = pd.DataFrame(rows)
     fresh["date"] = pd.to_datetime(fresh["date"])
 
+    # Check the feed before writing. If it has stalled, leave the existing
+    # data untouched instead of replacing it with stale rows.
+    newest = fresh["date"].max().date()
+    lag = (date.today() - newest).days
+    print(f"most recent alert: {newest} ({lag} days behind)")
+
+    if lag > MAX_LAG_DAYS:
+        raise SystemExit(
+            f"no alerts newer than {newest}, {lag} days behind. "
+            "The feed has stalled or the dataset version is not advancing. "
+            "Nothing was written."
+        )
+
     eng = engine()
     # Only the territories that came back are cleared. A failed fetch has to
     # leave its existing rows alone, otherwise a network error deletes data.
@@ -160,22 +173,11 @@ def refresh_recent(geostores: pd.DataFrame, start_date: str) -> None:
 
     with eng.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM alerts_daily")).scalar()
-        newest = conn.execute(text("SELECT MAX(date) FROM alerts_daily")).scalar()
 
     print(f"\nreplaced {deleted:,} rows with {len(fresh):,}")
     print(f"{total:,} rows total, {len(failures)} failures")
     for f in failures[:10]:
         print(" ", f)
-
-    lag = (date.today() - newest.date()).days
-    print(f"most recent alert: {newest.date()} ({lag} days behind)")
-
-    # The feed can lag by a few days, but it shouldn't stop advancing.
-    if lag > MAX_LAG_DAYS:
-        raise SystemExit(
-            f"no alerts newer than {newest.date()}, {lag} days behind. "
-            "The feed has stalled or the dataset version is not advancing."
-        )
 
 def backfill(geostores: pd.DataFrame) -> None:
     """Fetch the full history for every territory, resuming if interrupted."""
