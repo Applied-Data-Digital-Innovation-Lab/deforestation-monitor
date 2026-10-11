@@ -43,3 +43,5 @@ jobs:
       
       - name: Prune old alerts
         run: python src/prune_alerts.py
+        env:
+          NEON_URL: ${{ secrets.NEON_URL }}
