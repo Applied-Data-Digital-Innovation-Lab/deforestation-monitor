@@ -103,7 +103,7 @@ GitHub Actions (daily)
 | `territories` | 3,866 | Name, country, area, population, map point |
 | `geostores` | 3,866 | The GFW ID for each territory |
 | `alerts_daily` | ~187,000 | One row per territory, day and confidence level, last 180 days |
-| `alerts_weekly` | ~847,000 | The weekly series behind the charts, zeros included |
+| `alerts_weekly` | ~851,000 | The weekly series behind the charts, zeros included |
 | `rankings` | 3,866 | The current rolling window |
 | `rankings_history` | ~500,000 | One row per territory per calendar week, where it lost something |
 | `trends` | ~80 | Territories on a rising trajectory |

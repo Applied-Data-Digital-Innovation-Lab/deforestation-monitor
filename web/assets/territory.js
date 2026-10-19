@@ -341,7 +341,7 @@
     rows.slice().sort(function (a, b) { return b.lost_ha - a.lost_ha; }).forEach(function (h) {
       var marker = L.circleMarker([h.lat, h.lon], hotspotStyle(hotspotRadius(h.lost_ha, maxHa)))
         .bindTooltip(
-          '#' + h.rank + ' · ' + DM.ha(h.lost_ha) + ' · ' + share(h.share_pct) + ' of alerts',
+          '#' + h.rank + ' · est. ' + DM.ha(h.lost_ha) + ' · ' + share(h.share_pct) + ' of alerts',
           { direction: 'top' }
         )
         .addTo(hotspotMap);

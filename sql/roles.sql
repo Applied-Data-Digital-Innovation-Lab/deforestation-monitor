@@ -11,8 +11,6 @@ GRANT CONNECT ON DATABASE neondb TO web_reader;
 GRANT USAGE ON SCHEMA public TO web_reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO web_reader;
 
--- Tables are recreated by the daily pipeline, so grant access to new ones too.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO web_reader;
 
 GRANT INSERT ON field_reports TO web_reader;
 GRANT USAGE, SELECT ON SEQUENCE field_reports_id_seq TO web_reader;

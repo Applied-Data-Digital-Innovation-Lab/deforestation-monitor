@@ -577,7 +577,7 @@ h2 {
      photograph was also called hero.jpg, so without a new query a browser
      that cached it keeps showing it. Bump it whenever the file is replaced
      under the same name. */
-  --hero-photo: url("hero.jpg?v=2026-10-11b");
+  --hero-photo: url("hero.jpg?v=2026-10-19");
 
   position: relative;
   display: flex;

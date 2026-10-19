@@ -550,16 +550,17 @@ function dm_pg_territory(int $territory_id, ?string $window = null): ?array
 
 function dm_pg_history(int $territory_id): array
 {
-    // Always filtered by territory_id — alerts_weekly holds about 843,000 rows
+    // Always filtered by territory_id — alerts_weekly holds about 851,000 rows
     // (October 2026), gains a row per territory every week, and is never
     // queried unfiltered.
     //
-    // DISTINCT ON because nothing in the table guarantees one row per week.
-    // `week` is a timestamp rather than a date, and the pipeline rewrites this
-    // table daily, so a territory can end up carrying two rows for the same
-    // Monday — a second write of the same week stamped at a different time of
-    // day. Ordered by week they arrive as two neighbouring rows the chart drew
-    // as two bars of the same height under the same label: one week, twice.
+    //o DISTINCT ON because one row per calendar week is not guaranteed: the
+    // UNIQUE on (territory_id, week) covers the whole timestamp rather than
+    // the date, and the pipeline rewrites this table daily, so a territory can
+    // end up carrying two rows for the same Monday — a second write of the
+    // same week stamped at a different time of day. Ordered by week they
+    // arrive as two neighbouring rows the chart drew as two bars of the same
+    // height under the same label: one week, twice.
     //
     // The later stamp wins rather than the sum: lost_ha is that week's total,
     // not a daily increment, so adding two writes of it would double-count,
