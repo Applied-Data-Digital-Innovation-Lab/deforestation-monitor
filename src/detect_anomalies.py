@@ -55,18 +55,21 @@ def to_weekly(alerts: pd.DataFrame, territories: pd.DataFrame, stored: pd.DataFr
         alerts.groupby(["territory_id", "week"])["area_ha"].sum().reset_index()
     )
 
-    frames = [fresh]
+    frames = []
     if stored is not None and not stored.empty:
-        # Keep only weeks older than the daily data. Recent weeks are
-        # rebuilt each run, so stale archived values don't carry over.
-        cutoff = fresh["week"].min()
+        # The oldest week is incomplete in alerts_daily, so keep it from the
+        # archive and only rebuild weeks with a full seven days of data.
+        first_full = fresh["week"].min() + pd.Timedelta(days=7)
         older = (
-            stored.loc[stored["week"] < cutoff, ["territory_id", "week", "lost_ha"]]
+            stored.loc[stored["week"] < first_full,
+                    ["territory_id", "week", "lost_ha"]]
             .rename(columns={"lost_ha": "area_ha"})
         )
+        fresh = fresh.loc[fresh["week"] >= first_full]
         if not older.empty:
-            frames.insert(0, older)
+            frames.append(older)
 
+    frames.append(fresh)
     weekly = pd.concat(frames, ignore_index=True)
 
     # A week with no alerts is still a real zero. Otherwise, each territory's
