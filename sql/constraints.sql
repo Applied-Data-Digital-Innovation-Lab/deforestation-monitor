@@ -22,6 +22,10 @@ ALTER TABLE alerts_daily
     ALTER COLUMN area_ha SET NOT NULL,
     ALTER COLUMN alerts SET NOT NULL;
 
+-- Older databases may not have this column yet.
+ALTER TABLE alerts_daily
+    ADD COLUMN IF NOT EXISTS gfw_version TEXT;
+
 -- One row per territory and week.
 ALTER TABLE alerts_weekly
     ADD UNIQUE (territory_id, week),

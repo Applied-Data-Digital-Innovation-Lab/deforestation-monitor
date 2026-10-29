@@ -55,11 +55,11 @@ A flagged territory is a polygon, and some of them are enormous. Saying that Alt
  
 The alerts behind that figure are individual 10 m pixels with their own coordinates, so they cluster into the places the loss is concentrated in. For each flagged territory the pipeline fetches those coordinates for the current window, groups them with DBSCAN at a two-kilometre radius, and stores the ten largest with their centre, area and share.
  
-In most territories the top few hotspots account for nearly all the loss: 92 per cent in one place for Jurubaxi-Téa, 80 per cent for Curripaco. In the largest ones the loss is more dispersed and the leading hotspot covers a fifth or a half, which is still the difference between a point to visit and a polygon the size of a country.
+In most territories the leading hotspot holds the bulk of the week's alerts: the median share is around 85 per cent, and in a number of them a single cluster holds the whole week. Where the loss is dispersed it falls much lower, as in Trombetas/Mapuera at 26 per cent of 79,606 alerts, which is still the difference between a point to visit and a polygon the size of a country.
  
 Only flagged territories are queried, and only for the current window: around sixty requests rather than 3,866. GFW caps a response at 6 MB, so a territory with hundreds of thousands of alerts in one week is asked for a day at a time.
  
-**One caveat, visible on the page.** A hotspot's hectares are its pixel count at 0.01 ha each, while the territory's figure above it is GFW's own `SUM(area__ha)`. The two are close but will not reconcile exactly, and the share shown is a share of alerts rather than of hectares.
+**One caveat, visible on the page.** A hotspot's hectares are its pixel count at 0.01 ha each, while the territory's figure above it is GFW's own `SUM(area__ha)`. The two are close but will not reconcile exactly, and the share shown is a share of alerts rather than of hectares. The shares do not sum to the whole either: GFW returns fewer coordinates at point level than it counts in aggregate for the largest territories, so some alerts are in no hotspot and never were.
  
 ---
  
@@ -102,7 +102,7 @@ GitHub Actions (daily)
 |---|---|---|
 | `territories` | 3,866 | Name, country, area, population, map point |
 | `geostores` | 3,866 | The GFW ID for each territory |
-| `alerts_daily` | ~187,000 | One row per territory, day and confidence level, last 180 days |
+| `alerts_daily` | ~209,000 | One row per territory, day and confidence level, last 180 days |
 | `alerts_weekly` | ~851,000 | The weekly series behind the charts, zeros included |
 | `rankings` | 3,866 | The current rolling window |
 | `rankings_history` | ~500,000 | One row per territory per calendar week, where it lost something |
@@ -223,7 +223,7 @@ Without `NEON_URL` the site renders its shell, every panel fails, and the header
  
 ## Working with the GFW Data API
  
-Five things that cost time and are not documented upstream.
+Six things that cost time and are not documented upstream.
  
 **The dataset version has to be resolved at run time, not pinned.** GFW publishes a new version daily and retires the old ones after a few weeks. A pinned version first stops receiving data, silently, while the pipeline keeps succeeding and the query keeps returning rows that are not new; then it disappears and every request 404s. The backfill and the daily refresh both resolve the latest version.
  
@@ -234,6 +234,8 @@ Five things that cost time and are not documented upstream.
 **`MAX()` over an empty result set** returns null and breaks the query with `object of type 'NoneType' has no len()`. Territories with no alerts hit this.
  
 **A response is capped at 6 MB** and fails rather than truncating, with `Response payload size exceeded maximum allowed payload size`. There is no row count to check in advance; the only way to know is to ask and be refused, then split the request.
+
+**The point-level query returns fewer rows than the aggregate count.** For the same geostore, window and dataset version, `COUNT(*)` returned 99,957 alerts while the coordinate query returned 82,971. The download endpoint is no better: for the single day holding 99.9 per cent of those alerts, both endpoints returned 77,971 against a counted 99,929. Results also don't add up across dates: querying a day with 28 alerts added 5,000 coordinates. Since `latitude` can't be used in a filter, the missing points can't be recovered by splitting the query. The API returns fewer rows without an error, so hotspot shares use the aggregate count as the denominator.
  
 ---
  
@@ -265,7 +267,9 @@ Five things that cost time and are not documented upstream.
  
 **The thresholds are choices.** The 90th percentile, the 5 ha floor and the ratio of 2 were tuned against what a small team could realistically act on. They sit as constants at the top of the script so they are easy to revisit.
  
-**Storage.** `alerts_daily` keeps the last 180 days and `src/prune_alerts.py` drops the rest at the end of each daily run, so it settles at around 22 MB instead of growing without bound. The database sits at about half of Neon's free tier. What now grows is `rankings_history`, at roughly 670 KB a week.
+**Storage.** `alerts_daily` keeps the last 180 days and `src/prune_alerts.py` drops the rest at the end of each daily run, so it stays bounded rather than growing without limit: 51 MB, including the space Postgres holds for reuse after each day's delete and reload. The database is 282 MB of Neon's 512 MB free tier.
+
+**No retention policy on the archive, and the arithmetic for when there should be.** What grows is `rankings_history`, 139 MB over 511,270 rows and about 0.8 MB a week, and `alerts_weekly`, 82 MB and about 0.4 MB a week. Together that is roughly 60 MB a year against 230 MB of headroom, so the archive has about three and a half years before the limit and does not need cutting now. Past about 400 MB it would, and the cost is known: `rankings_history` is what draws the per-week baseline band and counts how often a territory has been flagged, so dropping its oldest weeks shortens both of those rather than weakening the screening, which reads its history from `alerts_weekly` instead.
  
 **A territory with no forest left goes quiet.** Alerts fire on loss of cover, so once there is nothing left to lose there is nothing to detect. That holds for any alert-based system.
  

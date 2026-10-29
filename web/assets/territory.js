@@ -308,8 +308,9 @@
         : '') +
       'Hectares are estimated from the number of alert pixels, at 0.01 ha ' +
       'each, and the share is of alerts rather than of hectares, so neither ' +
-      'matches the measured loss above exactly. Alerts outside any hotspot ' +
-      'were too scattered to group.';
+      'matches the measured loss above exactly. The shares do not add up to ' +
+      'the whole week: the rest is alerts too scattered to group, plus alerts ' +
+      'the source returns in its counts but not as coordinates.';
 
     buildHotspotMap(t, rows);
   }
@@ -467,12 +468,12 @@
 
   /* One bar per week, whatever arrives.
    *
-   * alerts_weekly has no key that guarantees one row per week: `week` is a
-   * timestamp, and the pipeline rewrites the table daily, so a territory can
-   * carry two rows for the same Monday. Sorted by week they land in adjacent
-   * categories with the same label and the same height — one week drawn
-   * twice — and the current-window match then coloured the second of the pair
-   * and left its twin sitting grey beside it.
+   * alerts_weekly's UNIQUE on (territory_id, week) covers the whole timestamp
+   * rather than the date, and the pipeline rewrites the table daily, so a
+   * territory can carry two rows for the same Monday. Sorted by week they land
+   * in adjacent categories with the same label and the same height — one week
+   * drawn twice — and the current-window match then coloured the second of the
+   * pair and left its twin sitting grey beside it.
    *
    * The query now collapses them too. This stays because the chart is where
    * the duplicate is visible, and it must not be able to draw a week twice

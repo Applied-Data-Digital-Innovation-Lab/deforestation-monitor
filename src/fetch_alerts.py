@@ -130,6 +130,11 @@ def refresh_recent(geostores: pd.DataFrame, start_date: str) -> None:
                     "confidence": r["confidence"],
                     "area_ha": r["area_ha"],
                     "alerts": r["count"],
+                    # GFW revises past dates as it republishes daily. Re-fetching April–October
+                    # returned values 2–4% lower across the whole period, with no version history.
+                    # Rows outside the refresh window keep their last version; backfilled rows use
+                    # NULL because their version is unknown.
+                    "gfw_version": version,
                 })
             if n % 500 == 0:
                 print(f"{n}/{len(geostores)}")

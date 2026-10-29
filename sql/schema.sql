@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS alerts_daily (
     confidence    TEXT NOT NULL,
     area_ha       DOUBLE PRECISION NOT NULL,
     alerts        INTEGER NOT NULL,
+    gfw_version   TEXT,
     UNIQUE (territory_id, date, confidence)
 );
 

@@ -71,7 +71,7 @@ def fetch_points(geostore_id: str, start, end, url: str) -> pd.DataFrame:
         return pd.concat(frames, ignore_index=True)
 
 
-def cluster(points: pd.DataFrame) -> pd.DataFrame:
+def cluster(points: pd.DataFrame, territory_alerts: int | None = None) -> pd.DataFrame:
     """Group alerts into hotspots, largest first."""
     if len(points) < MIN_ALERTS:
         return pd.DataFrame()
@@ -102,8 +102,10 @@ def cluster(points: pd.DataFrame) -> pd.DataFrame:
     out["lost_ha"] = (out["alerts"] * HA_PER_ALERT).round(2)
     out["rank"] = range(1, len(out) + 1)
 
-    # Share of the territory's total alerts.
-    out["share_pct"] = (out["alerts"] / len(points) * 100).round(1)
+    # GFW's point query can return fewer alerts than its aggregate count,
+    # so use the latter to avoid overstating how concentrated the loss is.
+    denom = territory_alerts if territory_alerts else len(points)
+    out["share_pct"] = (out["alerts"] / denom * 100).round(1)
     return out
 
 
@@ -116,10 +118,17 @@ def main() -> None:
     flagged = pd.read_sql(
         """
         SELECT r.territory_id, r.name, r.window_start, r.window_end,
-               g.geostore_id
+               g.geostore_id,
+               COALESCE(SUM(a.alerts), 0) AS territory_alerts
         FROM rankings r
         JOIN geostores g ON g.territory_id = r.territory_id
+        LEFT JOIN alerts_daily a
+               ON a.territory_id = r.territory_id
+              AND a.date >= r.window_start
+              AND a.date <= r.window_end
         WHERE r.flagged
+        GROUP BY r.territory_id, r.name, r.window_start, r.window_end,
+                 g.geostore_id, r.score
         ORDER BY r.score DESC
         """,
         eng, parse_dates=["window_start", "window_end"],
@@ -133,11 +142,11 @@ def main() -> None:
             points = fetch_points(
                 t.geostore_id, t.window_start, t.window_end, url
             )
-        except RuntimeError as exc:
+        except (RuntimeError, requests.RequestException) as exc:
             failures.append((t.name, str(exc)[:120]))
             continue
 
-        found = cluster(points)
+        found = cluster(points, t.territory_alerts)
         if found.empty:
             dispersed.append(t.name)
             continue
