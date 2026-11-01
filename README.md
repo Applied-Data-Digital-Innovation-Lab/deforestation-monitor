@@ -103,7 +103,7 @@ GitHub Actions (daily)
 | `territories` | 3,866 | Name, country, area, population, map point |
 | `geostores` | 3,866 | The GFW ID for each territory |
 | `alerts_daily` | ~209,000 | One row per territory, day and confidence level, last 180 days |
-| `alerts_weekly` | ~851,000 | The weekly series behind the charts, zeros included |
+| `alerts_weekly` | 3,866 a week of history (~858,000) | The weekly series behind the charts, zeros included |
 | `rankings` | 3,866 | The current rolling window |
 | `rankings_history` | ~500,000 | One row per territory per calendar week, where it lost something |
 | `trends` | ~80 | Territories on a rising trajectory |
@@ -193,7 +193,7 @@ python src/build_territories.py        # ~1 min
 python src/create_geostores.py         # ~80 min
 python src/fetch_alerts.py --backfill  # ~35 min
 python src/seed_neon.py                # uploads the static tables
-python src/backfill_rankings.py        # evaluates every past week
+python src/backfill_rankings.py        # first-time only: refuses a non-empty archive
 ```
  
 ### Daily
@@ -243,12 +243,14 @@ Six things that cost time and are not documented upstream.
  
 ```
 ├── src/          the pipeline: territories, geostores, alerts, anomalies,
-│                 trends, hotspots, prune, plus seed_neon and backfill_rankings
+│                 trends, hotspots, prune, plus seed_neon, backfill_rankings
+│                 and export_archive
 ├── sql/          schema.sql, roles.sql, and constraints.sql for an existing database
 ├── notebooks/    the analysis behind each decision, 01 to 05
+├── tests/        the weekly aggregation at the retention boundary
 ├── web/          the PHP front end
 ├── data/         not committed
-└── .github/workflows/daily.yml
+└── .github/workflows/   daily.yml, snapshot.yml and tests.yml
 ```
  
 ---
@@ -275,6 +277,35 @@ Six things that cost time and are not documented upstream.
  
 **An alert points somewhere, it does not confirm anything.** This is a screening tool for prioritisation rather than a substitute for ground verification, and it does not identify a cause or attribute responsibility.
  
+---
+
+## Handover
+
+Everything the pipeline depends on that is not in this repository.
+
+**The Neon account and the GFW API key are held personally, not by the repository.** Whoever runs the pipeline holds both, and neither moves with a clone. Neon transfers a project to another account with a claim link: create it from the project's settings, the recipient signs in and picks which of their organisations receives it, and the link expires after 24 hours. Remove any project integrations first, and the destination needs a free project slot. The GFW key does not transfer at all, but a new one is free and immediate from `data-api.globalforestwatch.org` and only has to be set as the `GFW_API_KEY` repository secret; the geostore IDs already in the database are queryable with any key.
+
+If the account transfer ever fails, a fresh Neon project plus `sql/schema.sql`, `sql/roles.sql` and `src/export_archive.py --restore` on the latest snapshots reproduces everything except the last 180 days of daily alerts, which `fetch_alerts.py --backfill` refetches.
+
+**Scheduled workflows stop after 60 days without a commit.** GitHub disables them on an inactive repository, with no failure and no notification: the site simply goes on showing the last week it managed to compute. Whoever keeps this running should commit something periodically, or re-enable the workflows from the Actions tab when GitHub emails about it.
+
+**The actions are one major version behind.** `checkout@v4`, `setup-python@v5` and `upload-artifact@v4` run on Node 20, which GitHub has deprecated and is already forcing onto Node 24. A warning today, a failure eventually. Bumping all three is the fix, and it is worth doing when there is time to watch the workflows run.
+
+### Backups
+
+`src/export_archive.py` snapshots `alerts_weekly` and `rankings_history` to gzipped CSV, and `.github/workflows/snapshot.yml` runs it weekly, on Sundays before the daily run, uploading the result as an Actions artifact. Artifacts expire after 90 days, so this is a rolling window rather than an archive; a release asset does not expire if a permanent copy is ever wanted.
+
+Those two tables are in it because nothing can reproduce them. GFW revises past figures and retires dataset versions, so a refetch returns a series rather than this series.
+
+`field_reports` is not, and must not be added: it carries `reporter` and `source_ip`, this repository is public, and an Actions artifact is a public download. It is also the least recoverable table here, since a field report is somebody who went to a place and wrote down what they found. Once it has rows it needs an export its owner keeps.
+
+To put a table back:
+
+    python src/export_archive.py --restore data/snapshots/alerts_weekly-YYYYMMDD.csv.gz
+    python src/export_archive.py --restore data/snapshots/alerts_weekly-YYYYMMDD.csv.gz --yes
+
+The first prints the row counts of the table and of the file and writes nothing. The second truncates and reloads inside one transaction.
+
 ---
  
 ## Attribution
