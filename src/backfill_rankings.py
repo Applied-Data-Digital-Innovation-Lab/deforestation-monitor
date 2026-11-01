@@ -1,22 +1,57 @@
-"""Evaluate every past window, so the site can show any week of the history."""
+"""Rebuild rankings_history for the full weekly archive.
+
+This is intended for first-time setup. Rebuilding an existing archive uses
+today's data and baselines, not the ones used for the original rankings.
+Use --yes to confirm replacing a non-empty archive.
+"""
+
+import argparse
 
 import pandas as pd
 from sqlalchemy import text
 
 from db import engine
-from detect_anomalies import load, to_weekly, score, MIN_ACTIVE_WEEKS, SETTLED_AFTER_WEEKS
+from detect_anomalies import load, to_weekly, score, SETTLED_AFTER_WEEKS
 
-# A window this early has almost no history behind it: the seasonal baseline
-# rests on a handful of weeks, or on none at all. Those rows are published
-# anyway, because they cover the 2024 fire season, which is the most
-# significant event in the record. The flag says not to trust the ratio.
+# Early windows have little history for the seasonal baseline, but are kept
+# to preserve the 2024 fire season. Their ratios should be treated with care.
+
 
 def main() -> None:
-    alerts, territories = load()
-    weekly = to_weekly(alerts, territories)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="confirm replacing a non-empty archive",
+    )
+    args = parser.parse_args()
+
+    # alerts_daily only keeps 180 days. Include the stored weekly series so
+    # the rebuild doesn't replace the full archive with just six months.
+    alerts, territories, stored = load()
+    weekly = to_weekly(alerts, territories, stored)
 
     weeks = sorted(pd.Series(weekly["week"].unique()))
     print(f"{len(weeks)} weeks to evaluate")
+
+    eng = engine()
+
+    # Check first so we don't spend time computing a rebuild that will be refused.
+    with eng.connect() as conn:
+        existing = conn.execute(
+            text("SELECT COUNT(*) FROM rankings_history")
+        ).scalar()
+        archived = conn.execute(
+            text("SELECT COUNT(DISTINCT window_end) FROM rankings_history")
+        ).scalar()
+
+    if existing and not args.yes:
+        raise SystemExit(
+            f"rankings_history already holds {existing:,} rows across "
+            f"{archived} weeks. Rebuilding uses today's baselines rather "
+            f"than the ones used originally, and would write {len(weeks)} "
+            "weeks in their place. Nothing was written. Add --yes to continue."
+        )
 
     frames = []
     for i, week in enumerate(weeks):
@@ -31,21 +66,25 @@ def main() -> None:
 
     history = pd.concat(frames, ignore_index=True)
 
-    # Only archive territories with recorded loss. The full series, zeros included,
-    # is kept in alerts_weekly.
+    # Keep only territories with recorded loss. Zero-loss weeks remain in
+    # alerts_weekly.
     history = history[history["area_ha"] > 0]
 
     print(f"\n{len(history):,} rows across {len(weeks)} windows")
     print(f"flagged in total: {history['flagged'].sum():,}")
 
-    eng = engine()
-
-    # Keep the truncate and load in one transaction. If the load fails,
-    # the old data is restored instead of leaving the site empty.
+    # Keep the truncate and reload in one transaction so a failed load
+    # doesn't leave the archive empty.
     with eng.begin() as conn:
         conn.execute(text("TRUNCATE rankings_history"))
-        history.to_sql("rankings_history", conn, if_exists="append", index=False,
-                       chunksize=5000, method="multi")
+        history.to_sql(
+            "rankings_history",
+            conn,
+            if_exists="append",
+            index=False,
+            chunksize=5000,
+            method="multi",
+        )
 
     print("wrote rankings_history")
 
