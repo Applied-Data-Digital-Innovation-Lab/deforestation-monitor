@@ -1,0 +1,26 @@
+name: snapshot
+
+on:
+  schedule:
+    # Sundays, before the 09:00 daily run: if a daily run is ever what
+    # corrupts something, this snapshot is of the state before it.
+    - cron: "17 5 * * 0"
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: python src/export_archive.py
+        env:
+          NEON_URL: ${{ secrets.NEON_URL }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-snapshot
+          path: data/snapshots/*.csv.gz
+          retention-days: 90
