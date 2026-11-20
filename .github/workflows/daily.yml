@@ -9,6 +9,11 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+
+    # Only the release upload below needs write access.
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -40,8 +45,31 @@ jobs:
         env:
           GFW_API_KEY: ${{ secrets.GFW_API_KEY }}
           NEON_URL: ${{ secrets.NEON_URL }}
-      
+
       - name: Prune old alerts
         run: python src/prune_alerts.py
         env:
           NEON_URL: ${{ secrets.NEON_URL }}
+
+      # Hands the result to the MySQL copy the hosted site reads.
+      - name: Publish for the MySQL copy
+        run: python src/publish.py
+        env:
+          NEON_URL: ${{ secrets.NEON_URL }}
+
+      - name: Upload to the data release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Prerelease on a fixed tag: stable asset URLs, and it never shows
+          # up as the project's latest version.
+          gh release view data-latest >/dev/null 2>&1 || \
+            gh release create data-latest \
+              --prerelease \
+              --title "Published data for the hosted MySQL copy" \
+              --notes "Rewritten daily and read by database/import.php. Not a software release."
+
+          # Manifest last and alone, so an upload that dies halfway leaves the
+          # old one in place and the importer does nothing.
+          gh release upload data-latest data/published/*.jsonl.gz --clobber
+          gh release upload data-latest data/published/manifest.json --clobber
