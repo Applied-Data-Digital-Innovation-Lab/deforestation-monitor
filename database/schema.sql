@@ -189,3 +189,22 @@ CREATE TABLE IF NOT EXISTS field_reports (
     CONSTRAINT fk_field_reports_territory
         FOREIGN KEY (territory_id) REFERENCES territories (territory_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- What database/import.php has loaded. The newest ok row says how fresh the
+-- figures on the site are, and a cron run that failed with nobody watching
+-- leaves its reason here.
+--
+-- Both timestamps are UTC: published_at comes from the workflow and
+-- imported_at is written with UTC_TIMESTAMP, so they can be compared.
+--
+-- row_count and not rows: ROWS is a reserved word in MySQL 8 and later.
+CREATE TABLE IF NOT EXISTS import_log (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    published_at  DATETIME,
+    imported_at   DATETIME NOT NULL,
+    mode          VARCHAR(16),
+    row_count     INT NOT NULL DEFAULT 0,
+    status        VARCHAR(16) NOT NULL CHECK (status IN ('ok', 'error')),
+    note          TEXT,
+    KEY idx_import_log_status (status, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -60,6 +60,7 @@ import argparse
 import datetime as dt
 import gzip
 import json
+import os
 import pathlib
 import sys
 
@@ -90,10 +91,17 @@ BATCH = 5000
 
 
 def neon_url() -> str:
-    for line in open(".env"):
-        if line.startswith("NEON_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit("NEON_URL no esta en .env")
+    """The environment first, .env second: Actions has no .env file."""
+    url = os.environ.get("NEON_URL")
+    if url:
+        return url
+    try:
+        for line in open(".env"):
+            if line.startswith("NEON_URL="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except FileNotFoundError:
+        pass
+    raise SystemExit("NEON_URL no esta ni en el entorno ni en .env")
 
 
 def as_json(value):
