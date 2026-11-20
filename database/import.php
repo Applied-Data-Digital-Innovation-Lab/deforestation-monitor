@@ -15,6 +15,7 @@ declare(strict_types=1);
  *   --force     import even if the publication is one already loaded
  *   --dry-run   check everything and write nothing
  *   --quiet     only print on failure, which is what cron wants
+ *   --seed      allow a full publication, for the very first load
  *
  * CLI only, on purpose: reachable over HTTP this would be a write endpoint
  * anyone could fire.
@@ -46,8 +47,9 @@ $argvFlags = array_slice($argv, 1);
 $force   = in_array('--force', $argvFlags, true);
 $dryRun  = in_array('--dry-run', $argvFlags, true);
 $quiet   = in_array('--quiet', $argvFlags, true);
+$seed    = in_array('--seed', $argvFlags, true);
 
-exit(run($force, $dryRun, $quiet));
+exit(run($force, $dryRun, $quiet, $seed));
 
 
 function say(bool $quiet, string $line): void
@@ -161,10 +163,17 @@ function quoted(array $columns): string
 }
 
 /**
- * Replace one table's published scope, inside a transaction.
+ * Replace one table's published scope.
  *
- * Counts and sums are checked against the manifest before the COMMIT, so a
- * short or altered file is rolled back rather than written.
+ * In window mode the whole table goes in one transaction and the counts and
+ * sums are checked before the COMMIT, so a short or altered file is rolled
+ * back rather than written.
+ *
+ * In seed mode each batch is committed as it goes: the first load is 1.4
+ * million rows and holding that in one transaction asks more of a shared
+ * host than it can give. The checks then happen after the fact and a failure
+ * leaves a partial table, which is why seed mode has to be asked for and is
+ * meant for an empty database, where re-running fixes it.
  */
 function importTable(
     PDO $pdo,
@@ -172,6 +181,7 @@ function importTable(
     array $entry,
     string $file,
     bool $dryRun,
+    bool $seed,
     bool $quiet
 ): int {
     $columns = $entry['columns'];
@@ -194,30 +204,66 @@ function importTable(
     $sumColumn = $entry['sum'] ? array_key_first($entry['sum']) : null;
     $sumIndex  = $sumColumn !== null ? array_search($sumColumn, $columns, true) : false;
 
-    $marks = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
-
     // territories is the parent of every foreign key, so its rows are updated
     // in place rather than replaced: deleting them would fail against the
-    // children, and the territory set only changes when RAISG publishes.
+    // children, and the set only changes when RAISG publishes.
     $upsert = $table === 'territories';
+
+    $perRow = null;
     if ($upsert) {
+        $marks  = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
         $assign = [];
         foreach (array_slice($columns, 1) as $c) {
             $assign[] = "`$c` = ?";
         }
-        // Values bound twice instead of VALUES() or a row alias: those are
-        // deprecated or unavailable depending on the server, this is not.
-        $insert = $pdo->prepare(
+        // Values bound twice rather than VALUES() or a row alias: one is
+        // deprecated and the other needs a recent server, this needs neither.
+        $perRow = $pdo->prepare(
             "INSERT INTO `$table` (" . quoted($columns) . ") VALUES $marks"
             . ' ON DUPLICATE KEY UPDATE ' . implode(', ', $assign)
         );
-    } else {
-        $insert = $pdo->prepare(
-            "INSERT INTO `$table` (" . quoted($columns) . ") VALUES $marks"
-        );
     }
 
-    $pdo->beginTransaction();
+    // One statement per batch rather than one per row. The first load is 1.4
+    // million rows, and a round trip each would take hours. Capped so the
+    // placeholders stay well under the 65,535 a statement allows.
+    $batchSize = max(1, min(BATCH, intdiv(60000, max(1, count($columns)))));
+
+    $cache = [];
+    $flush = function (array $batch) use ($pdo, $table, $columns, $upsert, $perRow, &$cache) {
+        if (!$batch) {
+            return;
+        }
+        if ($upsert) {
+            foreach ($batch as $row) {
+                $perRow->execute(array_merge($row, array_slice($row, 1)));
+            }
+            return;
+        }
+        $n = count($batch);
+        if (!isset($cache[$n])) {
+            $marks = '(' . implode(', ', array_fill(0, count($columns), '?')) . ')';
+            $cache[$n] = $pdo->prepare(
+                "INSERT INTO `$table` (" . quoted($columns) . ') VALUES '
+                . implode(', ', array_fill(0, $n, $marks))
+            );
+        }
+        $flat = [];
+        foreach ($batch as $row) {
+            foreach ($row as $value) {
+                $flat[] = $value;
+            }
+        }
+        $cache[$n]->execute($flat);
+    };
+
+    // A dry run always gets a transaction, seed or not: it is a check, and a
+    // check that cannot undo itself is not one.
+    $useTransaction = !$seed || $dryRun;
+
+    if ($useTransaction) {
+        $pdo->beginTransaction();
+    }
     try {
         if (!$upsert) {
             if ($entry['scope']) {
@@ -263,15 +309,13 @@ function importTable(
             $batch[] = $row;
             $rows++;
 
-            if (count($batch) >= BATCH) {
-                flushBatch($insert, $batch, $upsert);
+            if (count($batch) >= $batchSize) {
+                $flush($batch);
                 $batch = [];
             }
         }
         gzclose($fh);
-        if ($batch) {
-            flushBatch($insert, $batch, $upsert);
-        }
+        $flush($batch);
 
         if ($rows !== $entry['rows']) {
             throw new RuntimeException(
@@ -298,7 +342,9 @@ function importTable(
             return $rows;
         }
 
-        $pdo->commit();
+        if ($useTransaction) {
+            $pdo->commit();
+        }
         say($quiet, sprintf('  %-18s %7d filas', $table, $rows));
         return $rows;
     } catch (Throwable $e) {
@@ -309,14 +355,7 @@ function importTable(
     }
 }
 
-function flushBatch(PDOStatement $stmt, array $batch, bool $upsert): void
-{
-    foreach ($batch as $row) {
-        $stmt->execute($upsert ? array_merge($row, array_slice($row, 1)) : $row);
-    }
-}
-
-function run(bool $force, bool $dryRun, bool $quiet): int
+function run(bool $force, bool $dryRun, bool $quiet, bool $seed): int
 {
     $tmp = null;
     try {
@@ -333,6 +372,18 @@ function run(bool $force, bool $dryRun, bool $quiet): int
             file_get_contents(download("$base/manifest.json", $tmp)),
             true, 512, JSON_THROW_ON_ERROR
         );
+
+        // A full publication replaces whole tables and, being too large for
+        // one transaction, does it without one. That has to be asked for.
+        $full = ($manifest['mode'] ?? '') === 'full';
+        if ($full && !$seed) {
+            throw new RuntimeException(
+                'esta publicacion es completa, no una ventana. Reemplaza tablas '
+                . 'enteras sin transaccion, asi que hay que pedirla con --seed '
+                . 'y sobre una base recien creada.'
+            );
+        }
+        $seed = $seed && $full;
 
         $published = (string) $manifest['published_at'];
         // Stored and compared in the same shape, or the comparison below never
@@ -369,7 +420,7 @@ function run(bool $force, bool $dryRun, bool $quiet): int
                 );
             }
 
-            $total += importTable($pdo, $table, $entry, $file, $dryRun, $quiet);
+            $total += importTable($pdo, $table, $entry, $file, $dryRun, $seed, $quiet);
         }
 
         if (!$dryRun) {
@@ -399,6 +450,11 @@ function run(bool $force, bool $dryRun, bool $quiet): int
                 ')->execute([':n' => substr($e->getMessage(), 0, 1000)]);
             } catch (Throwable $ignored) {
             }
+        }
+        if ($seed) {
+            fwrite(STDERR, "import: en modo seed no hay transaccion, asi que "
+                . "alguna tabla puede haber quedado a medio cargar. "
+                . "Volve a correr con --seed: borra antes de insertar.\n");
         }
         return fail($e->getMessage());
     } finally {

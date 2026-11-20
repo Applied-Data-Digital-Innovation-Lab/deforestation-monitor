@@ -13,14 +13,21 @@ history arrives afterwards through database/import.php --seed.
 field_reports is not included. Those rows carry a reporter and a source IP,
 and the guide rules out real personal data in a public repository.
 
+Both a plain .sql and a .sql.gz are written. phpMyAdmin's upload limit is
+2 MB on some accounts and 50 MB on others, and it accepts either file, so
+DEPLOYMENT.md can name one and fall back to the other without anyone having
+to find out mid-install.
+
     python tools/make_sample_data.py            8 periods
     python tools/make_sample_data.py --weeks 4  smaller
 """
 
 import argparse
 import datetime as dt
+import gzip
 import os
 import pathlib
+import shutil
 import sys
 
 from sqlalchemy import create_engine, text
@@ -134,10 +141,13 @@ def main() -> int:
 
         out.write("COMMIT;\n")
 
+    gz = OUT.with_suffix(".sql.gz")
+    with OUT.open("rb") as plain, gzip.open(gz, "wb", compresslevel=9) as packed:
+        shutil.copyfileobj(plain, packed)
+
     size = OUT.stat().st_size
-    print(f"\n  {OUT}  {total:,} filas  {size/1024/1024:.2f} MB")
-    if size > 8 * 1024 * 1024:
-        print("  Ojo: mas de 8 MB puede no entrar por phpMyAdmin. Probar --weeks menor.")
+    print(f"\n  {OUT}     {total:,} filas  {size/1024/1024:.2f} MB")
+    print(f"  {gz}  {gz.stat().st_size/1024/1024:.2f} MB")
     return 0
 
 
