@@ -7,3 +7,14 @@ data/
 
 web/sample_*.json
 **/.env
+
+# The real database credentials, created on the server from
+# config/config.example.php. Never committed: section 7 of the delivery guide
+# is explicit that removing a published credential from the latest commit is
+# not enough, it has to be rotated and the history reviewed.
+**/config/config.php
+
+# Generado por src/publish.py. Vive en el release de GitHub, no en el repo:
+# un archivo por dia commiteado serian cientos de MB al ano que no se borran
+# sin reescribir historial.
+data/published/

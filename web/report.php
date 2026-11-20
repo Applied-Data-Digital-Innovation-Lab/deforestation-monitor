@@ -24,7 +24,7 @@ declare(strict_types=1);
  *   2. Length and value checks, here, whatever the form's maxlength said:
  *      the form is only a suggestion to whoever posts to this URL.
  *   3. Five reports an hour per IP, counted in the table itself before the
- *      insert (dm_pg_submit_report). No session, no cookie, nothing else to
+ *      insert (dm_db_submit_report). No session, no cookie, nothing else to
  *      keep.
  *
  * The IP is REMOTE_ADDR and only that. X-Forwarded-For is whatever the client

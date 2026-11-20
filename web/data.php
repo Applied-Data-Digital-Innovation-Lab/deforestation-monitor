@@ -9,18 +9,24 @@ declare(strict_types=1);
  *
  * ONE BACKEND
  * -----------
- * PostgreSQL over PDO, and nothing else. NEON_URL must be set:
+ * MySQL over PDO, and nothing else. config/config.php must exist:
  *
- *   export NEON_URL='postgresql://user:password@host.neon.tech/dbname?sslmode=require'
+ *   <?php return ['host' => 'localhost', 'name' => 'account_dbname',
+ *                 'user' => 'account_dbuser', 'pass' => 'secret'];
  *
  * Without it there is no fallback and no second set of numbers — the site says
- * it is not configured and stops, which is dm_require_neon_url() below. There
+ * it is not configured and stops, which is dm_require_config() below. There
  * was once a JSON sample backend here for running the pages without a
  * database; it is gone, and with it the risk of a page that looks live and is
  * not.
  *
- * The credentials are never written down here, and this file does not read
- * .env: NEON_URL has to be in the process environment.
+ * The credentials are never written down here. config/config.php is created
+ * on the server from config.example.php and is not in Git.
+ *
+ * This database is a copy. The pipeline computes in PostgreSQL and publishes
+ * into it through database/import.php, so a wrong figure here is a publishing
+ * fault and not a calculation. field_reports is the exception: written by the
+ * site, held nowhere else, and never touched by the importer.
  *
  * A NOTE ON `area_ha`
  * -------------------
@@ -55,7 +61,7 @@ declare(strict_types=1);
    other is settled and historical.
 
    Every function below that takes $window answers from ONE of them — null
-   picks `rankings`, a date picks `rankings_history` — chosen in dm_pg_scope()
+   picks `rankings`, a date picks `rankings_history` — chosen in dm_db_scope()
    and never combined in a single statement. There is no UNION and no join
    between the two anywhere in this file.
 
@@ -70,7 +76,7 @@ declare(strict_types=1);
  */
 function dm_windows(): array
 {
-    return dm_pg_windows();
+    return dm_db_windows();
 }
 
 /**
@@ -84,7 +90,7 @@ function dm_windows(): array
  */
 function dm_summary(?string $window = null): array
 {
-    return dm_pg_summary($window);
+    return dm_db_summary($window);
 }
 
 /**
@@ -94,7 +100,7 @@ function dm_summary(?string $window = null): array
  */
 function dm_flagged(?string $window = null): array
 {
-    return dm_pg_flagged($window);
+    return dm_db_flagged($window);
 }
 
 /**
@@ -107,7 +113,7 @@ function dm_flagged(?string $window = null): array
  */
 function dm_losing(?string $window = null): array
 {
-    return dm_pg_losing($window);
+    return dm_db_losing($window);
 }
 
 /**
@@ -123,7 +129,7 @@ function dm_losing(?string $window = null): array
  */
 function dm_map_points(bool $flagged_only = false, ?string $window = null): array
 {
-    return dm_pg_map_points($flagged_only, $window);
+    return dm_db_map_points($flagged_only, $window);
 }
 
 /**
@@ -132,7 +138,7 @@ function dm_map_points(bool $flagged_only = false, ?string $window = null): arra
  */
 function dm_territory(int $territory_id, ?string $window = null): ?array
 {
-    return dm_pg_territory($territory_id, $window);
+    return dm_db_territory($territory_id, $window);
 }
 
 /**
@@ -145,7 +151,7 @@ function dm_territory(int $territory_id, ?string $window = null): ?array
  */
 function dm_history(int $territory_id): array
 {
-    return dm_pg_history($territory_id);
+    return dm_db_history($territory_id);
 }
 
 /**
@@ -162,7 +168,7 @@ function dm_history(int $territory_id): array
  */
 function dm_hotspots(int $territory_id): array
 {
-    return dm_pg_hotspots($territory_id);
+    return dm_db_hotspots($territory_id);
 }
 
 /* What someone who went to look can say they found. The database accepts
@@ -185,7 +191,7 @@ const DM_REPORTS_PER_HOUR    = 5;     // per source IP
  */
 function dm_reports(int $territory_id): array
 {   
-    return dm_pg_reports($territory_id);
+    return dm_db_reports($territory_id);
 }
 
 /**
@@ -204,7 +210,7 @@ function dm_submit_report(
     ?string $reporter,
     string $source_ip
 ): string {
-    return dm_pg_submit_report($territory_id, $verdict, $note, $reporter, $source_ip);
+    return dm_db_submit_report($territory_id, $verdict, $note, $reporter, $source_ip);
 }
 
 /**
@@ -220,7 +226,7 @@ function dm_submit_report(
  */
 function dm_frequent(): array
 {
-    return dm_pg_frequent();
+    return dm_db_frequent();
 }
 
 /**
@@ -237,7 +243,7 @@ function dm_frequent(): array
  */
 function dm_rising(): array
 {
-    return dm_pg_rising();
+    return dm_db_rising();
 }
 
 
@@ -246,7 +252,8 @@ function dm_rising(): array
    ========================================================================== */
 
 /**
- * Thrown when NEON_URL is absent. Its own class, not a bare RuntimeException,
+ * Thrown when config/config.php is missing or incomplete. Its own class,
+ * not a bare RuntimeException,
  * because api.php has to tell this apart from a database that was reachable
  * and failed: one is a deployment that was never finished and the other is an
  * outage, and answering "the database did not respond" to the first sends
@@ -256,36 +263,68 @@ class DmNotConfigured extends RuntimeException
 {
 }
 
-function dm_neon_url(): ?string
+/**
+ * config/config.php, or null when it is absent or incomplete. Read once.
+ *
+ * dirname(__DIR__) so the path survives this file moving to app/includes/ and
+ * the config to app/config/, which is the layout the delivery guide asks for.
+ */
+function dm_config(): ?array
 {
-    $url = getenv('NEON_URL');
-    if ($url === false || $url === '') {
-        $url = $_ENV['NEON_URL'] ?? $_SERVER['NEON_URL'] ?? null;
+    static $config = null;
+    static $read   = false;
+
+    if ($read) {
+        return $config;
     }
-    return ($url === null || $url === '') ? null : (string) $url;
+    $read = true;
+
+    $path = dirname(__DIR__) . '/config/config.php';
+    if (!is_readable($path)) {
+        return null;
+    }
+
+    $loaded = require $path;
+    if (!is_array($loaded)) {
+        return null;
+    }
+
+    // Incomplete counts as absent: a config missing the password would
+    // otherwise reach PDO and come back as a connection failure, which reads
+    // like an outage rather than like an unfinished deployment.
+    foreach (['host', 'name', 'user', 'pass'] as $key) {
+        if (!array_key_exists($key, $loaded)) {
+            return null;
+        }
+    }
+
+    $config = $loaded;
+    return $config;
 }
 
 function dm_is_configured(): bool
 {
-    return dm_neon_url() !== null;
+    return dm_config() !== null;
 }
 
-/** The connection URL, or stop with a message that names what is missing. */
-function dm_require_neon_url(): string
+/** The connection settings, or stop with a message that names what is missing. */
+function dm_require_config(): array
 {
-    $url = dm_neon_url();
-    if ($url === null) {
+    $config = dm_config();
+    if ($config === null) {
         throw new DmNotConfigured(
-            'NEON_URL is not set. This site reads its figures from Postgres and '
-            . 'has no other source; set NEON_URL in the environment and reload.'
+            'config/config.php is missing or incomplete. This site reads its '
+            . 'figures from MySQL and has no other source; copy '
+            . 'config/config.example.php to config/config.php, fill in the '
+            . 'database host, name, user and password, and reload.'
         );
     }
-    return $url;
+    return $config;
 }
 
 
 /* ==========================================================================
-   POSTGRES BACKEND (Neon, via PDO)
+   MYSQL BACKEND (via PDO)
    ========================================================================== */
 
 function dm_pdo(): PDO
@@ -295,26 +334,22 @@ function dm_pdo(): PDO
         return $pdo;
     }
 
-    $url = dm_require_neon_url();
+    $config = dm_require_config();
 
-    $parts = parse_url($url);
-    if ($parts === false || !isset($parts['host'])) {
-        throw new RuntimeException('NEON_URL is not a valid connection URL.');
-    }
-
+    // charset in the DSN, not a SET NAMES afterwards: the connection has to be
+    // utf8mb4 from its first statement or the accented names come back mangled
+    // with no error raised.
     $dsn = sprintf(
-        'pgsql:host=%s;port=%d;dbname=%s;sslmode=require',
-        $parts['host'],
-        $parts['port'] ?? 5432,
-        ltrim($parts['path'] ?? '', '/')
+        'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+        $config['host'],
+        (int) ($config['port'] ?? 3306),
+        $config['name']
     );
 
-    // Neon requires SSL; sslmode is pinned above rather than read from the
-    // query string so a copy-pasted URL cannot silently downgrade it.
     $pdo = new PDO(
         $dsn,
-        isset($parts['user']) ? rawurldecode($parts['user']) : '',
-        isset($parts['pass']) ? rawurldecode($parts['pass']) : '',
+        (string) $config['user'],
+        (string) $config['pass'],
         [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -322,10 +357,18 @@ function dm_pdo(): PDO
         ]
     );
 
+    // The strictness this file assumes, whatever the account's sql_mode is.
+    // Without STRICT_ALL_TABLES an oversized value is truncated and stored
+    // rather than refused.
+    $pdo->exec(
+        'SET SESSION sql_mode = '
+        . '\'ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION\''
+    );
+
     return $pdo;
 }
 
-function dm_pg_query(string $sql, array $params = []): array
+function dm_db_query(string $sql, array $params = []): array
 {
     $stmt = dm_pdo()->prepare($sql);
     $stmt->execute($params);
@@ -362,17 +405,17 @@ const DM_RANKING_COLUMNS = '
  *
  * @return array{0:string,1:string,2:array} table, extra AND-clause, params
  */
-function dm_pg_scope(?string $window, string $alias = 'r'): array
+function dm_db_scope(?string $window, string $alias = 'r'): array
 {
     if ($window === null) {
         return ['rankings', '', []];
     }
 
-    // ::date because window_end is a timestamp: comparing it to '2026-08-31'
-    // as a timestamp would match only midnight exactly.
+    // DATE() because window_end is a DATETIME: comparing it to '2026-08-31'
+    // as a datetime would match only midnight exactly.
     return [
         'rankings_history',
-        ' AND ' . $alias . '.window_end::date = :window',
+        ' AND DATE(' . $alias . '.window_end) = :window',
         [':window' => $window],
     ];
 }
@@ -386,35 +429,35 @@ function dm_pg_scope(?string $window, string $alias = 'r'): array
  * territory in a settled window, this is the line to revisit; the raw counts
  * come back too, so the disagreement would be visible rather than silent.
  */
-function dm_pg_windows(): array
+function dm_db_windows(): array
 {
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT
-            window_end::date                              AS window_end,
-            MIN(window_start)::date                       AS window_start,
-            COUNT(*) FILTER (WHERE flagged)               AS flagged_count,
-            COUNT(*) FILTER (WHERE NOT baseline_settled)  AS unsettled_count,
-            COUNT(*)                                      AS territory_count,
-            MIN(weeks_of_history)                         AS weeks_of_history
+            DATE(window_end)                                  AS window_end,
+            DATE(MIN(window_start))                           AS window_start,
+            COUNT(CASE WHEN flagged THEN 1 END)               AS flagged_count,
+            COUNT(CASE WHEN NOT baseline_settled THEN 1 END)  AS unsettled_count,
+            COUNT(*)                                          AS territory_count,
+            MIN(weeks_of_history)                             AS weeks_of_history
         FROM rankings_history
-        GROUP BY window_end::date
-        ORDER BY window_end::date DESC
+        GROUP BY DATE(window_end)
+        ORDER BY DATE(window_end) DESC
     ');
 
     return array_map('dm_shape_window', $rows);
 }
 
-function dm_pg_summary(?string $window = null): array
+function dm_db_summary(?string $window = null): array
 {
-    [$table, $clause, $params] = dm_pg_scope($window, 'r');
+    [$table, $clause, $params] = dm_db_scope($window, 'r');
 
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT
-            COUNT(*) FILTER (WHERE r.flagged)      AS flagged_count,
-            COUNT(*) FILTER (WHERE r.area_ha > 0)  AS territories_with_loss,
-            COALESCE(SUM(r.area_ha), 0)            AS total_lost_ha,
-            MIN(r.window_start)                    AS window_start,
-            MAX(r.window_end)                      AS window_end
+            COUNT(CASE WHEN r.flagged THEN 1 END)      AS flagged_count,
+            COUNT(CASE WHEN r.area_ha > 0 THEN 1 END)  AS territories_with_loss,
+            COALESCE(SUM(r.area_ha), 0)                AS total_lost_ha,
+            MIN(r.window_start)                        AS window_start,
+            MAX(r.window_end)                          AS window_end
         FROM ' . $table . ' r
         WHERE TRUE' . $clause . '
     ', $params);
@@ -422,7 +465,7 @@ function dm_pg_summary(?string $window = null): array
     // The single worst-hit flagged territory, for the third headline figure.
     // Computed in SQL rather than in the browser: the home page never
     // downloads the whole ranking, so it could not find this row itself.
-    $worst = dm_pg_query('
+    $worst = dm_db_query('
         SELECT r.territory_id, r.name, r.area_ha, r.ratio
         FROM ' . $table . ' r
         WHERE r.flagged' . $clause . '
@@ -441,25 +484,27 @@ function dm_pg_summary(?string $window = null): array
     return dm_shape_summary($summary);
 }
 
-function dm_pg_flagged(?string $window = null): array
+function dm_db_flagged(?string $window = null): array
 {
-    [$table, $clause, $params] = dm_pg_scope($window, 'r');
+    [$table, $clause, $params] = dm_db_scope($window, 'r');
 
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT ' . DM_RANKING_COLUMNS . '
         FROM ' . $table . ' r
         WHERE r.flagged' . $clause . '
-        ORDER BY r.score DESC NULLS LAST
+        -- MySQL sorts NULL below every value, so DESC already leaves the
+        -- unscored rows last and needs no clause for it.
+        ORDER BY r.score DESC
     ', $params);
 
     return array_map('dm_shape_ranking', $rows);
 }
 
-function dm_pg_losing(?string $window = null): array
+function dm_db_losing(?string $window = null): array
 {
-    [$table, $clause, $params] = dm_pg_scope($window, 'r');
+    [$table, $clause, $params] = dm_db_scope($window, 'r');
 
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT
             r.territory_id,
             r.name,
@@ -470,15 +515,18 @@ function dm_pg_losing(?string $window = null): array
             r.flagged
         FROM ' . $table . ' r
         WHERE r.area_ha > 0' . $clause . '
-        ORDER BY r.area_ha DESC
+        -- territory_id as a tiebreaker: hectares lost repeat often across
+        -- two thousand rows, and with one key the tied rows land wherever
+        -- the plan puts them.
+        ORDER BY r.area_ha DESC, r.territory_id ASC
     ', $params);
 
     return array_map('dm_shape_ranking_brief', $rows);
 }
 
-function dm_pg_map_points(bool $flagged_only = false, ?string $window = null): array
+function dm_db_map_points(bool $flagged_only = false, ?string $window = null): array
 {
-    [$table, $clause, $params] = dm_pg_scope($window, 'r');
+    [$table, $clause, $params] = dm_db_scope($window, 'r');
 
     // One query for every point. LEFT JOIN because a territory may legitimately
     // have no ranking row in a window — `rankings` is rewritten daily, and a
@@ -487,7 +535,7 @@ function dm_pg_map_points(bool $flagged_only = false, ?string $window = null): a
     // The window clause belongs in the JOIN and not in the WHERE: in the WHERE
     // it would discard the rows the LEFT JOIN just filled with NULL, and the
     // map would lose every quiet territory.
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT
             t.territory_id,
             t.name,
@@ -503,19 +551,22 @@ function dm_pg_map_points(bool $flagged_only = false, ?string $window = null): a
         WHERE t.lat IS NOT NULL
           AND t.lon IS NOT NULL
           ' . ($flagged_only ? 'AND r.flagged' : '') . '
+        -- Had no ORDER BY at all, which left the row order to the plan. The
+        -- map does not care, but an unstable payload cannot be diffed.
+        ORDER BY t.territory_id ASC
     ', $params);
 
     return array_map('dm_shape_point', $rows);
 }
 
-function dm_pg_territory(int $territory_id, ?string $window = null): ?array
+function dm_db_territory(int $territory_id, ?string $window = null): ?array
 {
-    [$table, $clause, $params] = dm_pg_scope($window, 'r');
+    [$table, $clause, $params] = dm_db_scope($window, 'r');
     $params[':id'] = $territory_id;
 
     // Same reason as the map: the window clause goes in the JOIN, or a
     // territory absent from that window stops being found at all.
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT
             t.territory_id,
             t.name,
@@ -548,13 +599,14 @@ function dm_pg_territory(int $territory_id, ?string $window = null): ?array
     return dm_shape_territory($rows[0]);
 }
 
-function dm_pg_history(int $territory_id): array
+function dm_db_history(int $territory_id): array
 {
     // Always filtered by territory_id — alerts_weekly holds about 851,000 rows
     // (October 2026), gains a row per territory every week, and is never
     // queried unfiltered.
     //
-    //o DISTINCT ON because one row per calendar week is not guaranteed: the
+    // The `pick` subquery below, because one row per calendar week is not
+    // guaranteed: the
     // UNIQUE on (territory_id, week) covers the whole timestamp rather than
     // the date, and the pipeline rewrites this table daily, so a territory can
     // end up carrying two rows for the same Monday — a second write of the
@@ -571,32 +623,43 @@ function dm_pg_history(int $territory_id): array
     // instead of this week's level drawn flat across all of them. The archive
     // stores calendar weeks keyed by their Sunday, and alerts_weekly keys the
     // same weeks by their Monday, so a week matches the archive row whose
-    // window_end falls on its seventh day. A range rather than `::date =`, so
+    // window_end falls on its seventh day. A range rather than an equality, so
     // a time of day on either stamp cannot break the match and the
     // (window_end, territory_id) key can still be used to find the row.
     //
     // LEFT JOIN, because the archive keeps only weeks with recorded loss: a
     // week with none, or one not archived yet, comes back with `screened`
     // false and no baseline, which the chart handles rather than guesses at.
-    $rows = dm_pg_query('
-        SELECT DISTINCT ON (w.week::date)
-               w.week, w.lost_ha, w.lost_per_1000ha,
+    $rows = dm_db_query('
+        SELECT w.week, w.lost_ha, w.lost_per_1000ha,
                h.seasonal_baseline,
                h.ratio,
                (h.territory_id IS NOT NULL) AS screened
         FROM alerts_weekly w
+        -- MySQL has no distinct-on. MAX(week) per calendar day picks the later
+        -- stamp, and cannot duplicate a row: inside one territory the UNIQUE
+        -- makes that maximum unique. :pick_id is :id again under a second name,
+        -- because reusing one placeholder twice is not portable with
+        -- ATTR_EMULATE_PREPARES off.
+        JOIN (
+                 SELECT MAX(week) AS latest
+                 FROM alerts_weekly
+                 WHERE territory_id = :pick_id
+                 GROUP BY DATE(week)
+             ) pick
+               ON pick.latest = w.week
         LEFT JOIN rankings_history h
                ON h.territory_id = w.territory_id
-              AND h.window_end >= w.week + INTERVAL \'6 days\'
-              AND h.window_end <  w.week + INTERVAL \'7 days\'
+              AND h.window_end >= w.week + INTERVAL 6 DAY
+              AND h.window_end <  w.week + INTERVAL 7 DAY
         WHERE w.territory_id = :id
-        ORDER BY w.week::date ASC, w.week DESC
-    ', [':id' => $territory_id]);
+        ORDER BY w.week ASC
+    ', [':id' => $territory_id, ':pick_id' => $territory_id]);
 
     return array_map('dm_shape_week', $rows);
 }
 
-function dm_pg_hotspots(int $territory_id): array
+function dm_db_hotspots(int $territory_id): array
 {
     // Joined to `rankings` on the window so the hotspots can only ever be the
     // current window's. The pipeline truncates and refills `hotspots` on its
@@ -604,27 +667,27 @@ function dm_pg_hotspots(int $territory_id): array
     // left over describe a week this page no longer shows, and none come back
     // rather than last week's under this week's figures.
     //
-    // ::date on both sides because both are timestamps written by separate
+    // DATE() on both sides because both are datetimes written by separate
     // runs, and a time-of-day difference must not decide the match.
-    $rows = dm_pg_query('
-        SELECT h.rank, h.lat, h.lon, h.alerts, h.lost_ha, h.share_pct,
+    $rows = dm_db_query('
+        SELECT h.`rank`, h.lat, h.lon, h.alerts, h.lost_ha, h.share_pct,
                h.window_end
         FROM hotspots h
         JOIN rankings r
           ON r.territory_id = h.territory_id
-         AND r.window_end::date = h.window_end::date
+         AND DATE(r.window_end) = DATE(h.window_end)
         WHERE h.territory_id = :id
-        ORDER BY h.rank ASC
+        ORDER BY h.`rank` ASC
     ', [':id' => $territory_id]);
 
     return array_map('dm_shape_hotspot', $rows);
 }
 
-function dm_pg_reports(int $territory_id): array
+function dm_db_reports(int $territory_id): array
 {
     // The columns that are published and nothing else: `reporter` and
     // `source_ip` stay in the table.
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT verdict, note, submitted_at
         FROM field_reports
         WHERE territory_id = :id AND approved
@@ -635,7 +698,7 @@ function dm_pg_reports(int $territory_id): array
     return array_map('dm_shape_report', $rows);
 }
 
-function dm_pg_submit_report(
+function dm_db_submit_report(
     int $territory_id,
     string $verdict,
     ?string $note,
@@ -643,15 +706,26 @@ function dm_pg_submit_report(
     string $source_ip
 ): string {
     $pdo = dm_pdo();
+
+    // The count and the insert as one step per IP. Without the lock, six
+    // requests arriving together would all count four and all insert.
+    // GET_LOCK belongs to the session and not to the transaction, so every way
+    // out of this function goes through the finally. Taken before the
+    // transaction opens, so releasing it cannot fail inside one. The name is
+    // hashed in PHP because the cap is 64 characters and MySQL is retiring its
+    // own hash functions.
+    $lock_name = 'dm_ip_' . sha1($source_ip);
+    $lock = $pdo->prepare('SELECT GET_LOCK(:lock, 10)');
+    $lock->execute([':lock' => $lock_name]);
+    if ((int) $lock->fetchColumn() !== 1) {
+        // Ten seconds means stuck, not busy. Refusing is safer than inserting
+        // without having counted.
+        return 'rate_limited';
+    }
+
     $pdo->beginTransaction();
 
     try {
-        // The count and the insert as one step per IP. Without the lock, six
-        // requests arriving together would all count four and all insert.
-        // Transaction-scoped, so it is released by the COMMIT or ROLLBACK
-        // below and cannot be left held.
-        $pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(:ip))')
-            ->execute([':ip' => $source_ip]);
 
         // Checked here rather than left to the foreign key, so an unknown id
         // is a 404 the page can explain rather than a constraint error that
@@ -667,7 +741,7 @@ function dm_pg_submit_report(
             SELECT COUNT(*)
             FROM field_reports
             WHERE source_ip = :ip
-              AND submitted_at > NOW() - INTERVAL \'1 hour\'
+              AND submitted_at > NOW() - INTERVAL 1 HOUR
         ');
         $recent->execute([':ip' => $source_ip]);
         if ((int) $recent->fetchColumn() >= DM_REPORTS_PER_HOUR) {
@@ -699,10 +773,13 @@ function dm_pg_submit_report(
             $pdo->rollBack();
         }
         throw $e;
+    } finally {
+        $pdo->prepare('SELECT RELEASE_LOCK(:lock)')
+            ->execute([':lock' => $lock_name]);
     }
 }
 
-function dm_pg_frequent(): array
+function dm_db_frequent(): array
 {
     // rankings_history only, and every window of it at once — the one query
     // in this file that reads the series across windows rather than one.
@@ -713,17 +790,17 @@ function dm_pg_frequent(): array
     // territory, rather than each territory's own first weeks. total_lost_ha
     // sums every settled week, flagged or not — it is what the territory lost
     // over the period, not only in the weeks it was flagged.
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT
             territory_id,
             name,
             country,
-            COUNT(*) FILTER (WHERE flagged) AS times_flagged,
-            SUM(area_ha)                    AS total_lost_ha
+            COUNT(CASE WHEN flagged THEN 1 END) AS times_flagged,
+            SUM(area_ha)                        AS total_lost_ha
         FROM rankings_history
         WHERE baseline_settled
         GROUP BY territory_id, name, country
-        HAVING COUNT(*) FILTER (WHERE flagged) > 0
+        HAVING times_flagged > 0
         ORDER BY times_flagged DESC, total_lost_ha DESC
         LIMIT 20
     ');
@@ -731,7 +808,7 @@ function dm_pg_frequent(): array
     return array_map('dm_shape_frequent', $rows);
 }
 
-function dm_pg_rising(): array
+function dm_db_rising(): array
 {
     // `trends` is the pipeline's own table: one row per territory that
     // qualified, already fitted and already filtered. It holds the current
@@ -741,7 +818,7 @@ function dm_pg_rising(): array
     // NOT flagged_now rather than a join to `rankings`: a territory flagged
     // this week is on the ranking already, and this list is the ones that
     // are not there yet.
-    $rows = dm_pg_query('
+    $rows = dm_db_query('
         SELECT territory_id, name, country, slope, r2
         FROM trends
         WHERE NOT flagged_now
@@ -756,7 +833,8 @@ function dm_pg_rising(): array
 /* ==========================================================================
    SHAPING — one canonical row shape
 
-   PDO hands back strings for numeric columns, so every value is cast here.
+   What PDO returns for a numeric column depends on the driver and the PHP
+   version, so every value is cast here.
    Without this the JSON payload would carry "0.6144" as text and the number
    formatting in the browser would quietly fall apart.
    ========================================================================== */
