@@ -18,3 +18,7 @@ web/sample_*.json
 # un archivo por dia commiteado serian cientos de MB al ano que no se borran
 # sin reescribir historial.
 data/published/
+
+# Backup que deja tools/port_data_php.py. Un .bak al lado de un .php en el
+# directorio web se sirve como texto plano.
+*.php.bak
