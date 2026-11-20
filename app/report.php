@@ -34,7 +34,7 @@ declare(strict_types=1);
  * behind one, this is the line to change, to read the header that proxy sets.
  */
 
-require __DIR__ . '/data.php';
+require __DIR__ . '/includes/data.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');

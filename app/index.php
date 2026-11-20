@@ -15,7 +15,7 @@ declare(strict_types=1);
  * page is never blank while Neon wakes from idle.
  */
 
-require __DIR__ . '/partials.php';
+require __DIR__ . '/includes/partials.php';
 
 dm_head('Ranking', 'ranking', [
     '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" '

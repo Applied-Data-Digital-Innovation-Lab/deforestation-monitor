@@ -22,7 +22,7 @@ declare(strict_types=1);
  * are not exposed.
  */
 
-require __DIR__ . '/partials.php';
+require __DIR__ . '/includes/partials.php';
 
 dm_head('Map', 'map', [
     '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" '

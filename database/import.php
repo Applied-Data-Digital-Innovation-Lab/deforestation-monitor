@@ -67,7 +67,7 @@ function fail(string $line): int
 
 function config(): array
 {
-    $path = dirname(__DIR__) . '/config/config.php';
+    $path = dirname(__DIR__) . '/app/config/config.php';
     if (!is_readable($path)) {
         throw new RuntimeException("no encuentro $path");
     }

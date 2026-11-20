@@ -31,7 +31,7 @@ declare(strict_types=1);
  * fitted by the pipeline for the current window only, and so is `hotspots`.
  */
 
-require __DIR__ . '/data.php';
+require __DIR__ . '/includes/data.php';
 
 header('Content-Type: application/json; charset=utf-8');
 

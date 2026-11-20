@@ -23,7 +23,7 @@ declare(strict_types=1);
  * Exits 1 if any query failed, so it can be used unattended.
  */
 
-require dirname(__DIR__) . '/web/data.php';
+require dirname(__DIR__) . '/app/includes/data.php';
 
 // Taken from the data rather than hardcoded, so the archived-window queries
 // are exercised on a database that has windows and skipped on one that does

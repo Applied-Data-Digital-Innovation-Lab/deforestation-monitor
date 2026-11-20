@@ -14,7 +14,7 @@ declare(strict_types=1);
  * arrive from api.php, so the page is never blank while Neon wakes.
  */
 
-require __DIR__ . '/partials.php';
+require __DIR__ . '/includes/partials.php';
 
 /* The same Chart.js build and the same integrity hash as territory.php, and
    the same Leaflet as index.php and map.php — one version of each library

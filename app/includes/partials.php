@@ -22,7 +22,9 @@ function dm_e(?string $s): string
  */
 function dm_asset(string $path): string
 {
-    $full = __DIR__ . '/' . $path;
+    // dirname, because this file sits in includes/ and the assets are
+    // one level up beside the pages.
+    $full = dirname(__DIR__) . '/' . $path;
     $stamp = is_readable($full) ? (string) filemtime($full) : '0';
     return dm_e($path . '?v=' . $stamp);
 }
@@ -103,10 +105,10 @@ function dm_head(string $title, string $active = '', array $head_extra = [], str
     </span>
 <?php if (!dm_is_configured()): ?>
     <!-- The badge used to read DEMO and mean "these are sample figures". There
-         are no sample figures any more: without NEON_URL the pages render
+         are no sample figures any more: without config/config.php the pages render
          their shell and every panel in them fails, so what the badge marks now
          is a deployment that was never finished. -->
-    <span class="source-badge" title="NEON_URL is not set, so this site has no data source. Every figure on the page will fail to load until it is set in the environment.">NOT CONFIGURED</span>
+    <span class="source-badge" title="config/config.php is missing, so this site has no data source. Every figure on the page will fail to load until it is created on the server.">NOT CONFIGURED</span>
 <?php endif; ?>
 
     <!-- The theme follows the operating system; this overrides it for this

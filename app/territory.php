@@ -8,7 +8,7 @@ declare(strict_types=1);
  * whether now is different.
  */
 
-require __DIR__ . '/partials.php';
+require __DIR__ . '/includes/partials.php';
 
 $raw = isset($_GET['id']) ? (string) $_GET['id'] : '';
 $territory_id = preg_match('/^\d+$/', $raw) === 1 ? (int) $raw : null;
