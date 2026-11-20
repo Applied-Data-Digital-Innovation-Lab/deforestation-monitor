@@ -10,12 +10,13 @@ declare(strict_types=1);
  *
  * Run from cron, once a day, a couple of hours after the workflow:
  *
- *   /usr/local/bin/php /home/ACCOUNT/public_html/PROJECT/database/import.php
+ *   /usr/local/bin/php /home/ACCOUNT/public_html/PROJECT/bin/import.php
  *
  *   --force     import even if the publication is one already loaded
  *   --dry-run   check everything and write nothing
  *   --quiet     only print on failure, which is what cron wants
  *   --seed      allow a full publication, for the very first load
+ *   --url U     read from U instead of the daily release
  *
  * CLI only, on purpose: reachable over HTTP this would be a write endpoint
  * anyone could fire.
@@ -49,7 +50,15 @@ $dryRun  = in_array('--dry-run', $argvFlags, true);
 $quiet   = in_array('--quiet', $argvFlags, true);
 $seed    = in_array('--seed', $argvFlags, true);
 
-exit(run($force, $dryRun, $quiet, $seed));
+// The first load reads a full publication, which lives under its own tag.
+$where = array_search('--url', $argvFlags, true);
+$url   = $where === false ? null : ($argvFlags[$where + 1] ?? null);
+if ($where !== false && ($url === null || str_starts_with($url, '--'))) {
+    fwrite(STDERR, "import: --url necesita una direccion\n");
+    exit(1);
+}
+
+exit(run($force, $dryRun, $quiet, $seed, $url));
 
 
 function say(bool $quiet, string $line): void
@@ -67,7 +76,10 @@ function fail(string $line): int
 
 function config(): array
 {
-    $path = dirname(__DIR__) . '/app/config/config.php';
+    // dirname, because this sits in bin/. The same relative path works in the
+    // repository and on the server, where what gets uploaded is the contents
+    // of app/ rather than the tree around it.
+    $path = dirname(__DIR__) . '/config/config.php';
     if (!is_readable($path)) {
         throw new RuntimeException("no encuentro $path");
     }
@@ -355,13 +367,13 @@ function importTable(
     }
 }
 
-function run(bool $force, bool $dryRun, bool $quiet, bool $seed): int
+function run(bool $force, bool $dryRun, bool $quiet, bool $seed, ?string $url): int
 {
     $tmp = null;
     try {
         $config = config();
         $pdo    = connect($config);
-        $base   = rtrim((string) ($config['data_url'] ?? DEFAULT_DATA_URL), '/');
+        $base   = rtrim($url ?? (string) ($config['data_url'] ?? DEFAULT_DATA_URL), '/');
 
         $tmp = sys_get_temp_dir() . '/dm-import-' . bin2hex(random_bytes(6));
         if (!mkdir($tmp, 0700) && !is_dir($tmp)) {
