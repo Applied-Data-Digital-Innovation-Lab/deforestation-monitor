@@ -60,13 +60,14 @@ import argparse
 import datetime as dt
 import gzip
 import json
-import os
 import pathlib
 import sys
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
-OUT = pathlib.Path("data/published")
+from db import engine
+
+OUT = pathlib.Path(__file__).resolve().parents[1] / "data" / "published"
 
 # Published whole.
 FULL = ["territories", "rankings", "trends", "hotspots"]
@@ -88,20 +89,6 @@ SUMS = {
 }
 
 BATCH = 5000
-
-
-def neon_url() -> str:
-    """The environment first, .env second: Actions has no .env file."""
-    url = os.environ.get("NEON_URL")
-    if url:
-        return url
-    try:
-        for line in open(".env"):
-            if line.startswith("NEON_URL="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except FileNotFoundError:
-        pass
-    raise SystemExit("NEON_URL no esta ni en el entorno ni en .env")
 
 
 def as_json(value):
@@ -169,7 +156,10 @@ def main() -> int:
         raise SystemExit("--weeks tiene que ser 1 o mas")
 
     OUT.mkdir(parents=True, exist_ok=True)
-    eng = create_engine(neon_url())
+    # db.engine and not a connection of our own: it sets pool_pre_ping and
+    # pool_recycle, which this needs more than anything else here. A --full
+    # run streams 870,000 rows and Neon drops idle connections.
+    eng = engine()
 
     manifest = {
         # UTC with an explicit Z: the importer compares this against what it

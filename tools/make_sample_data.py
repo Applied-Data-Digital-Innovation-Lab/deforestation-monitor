@@ -25,14 +25,20 @@ to find out mid-install.
 import argparse
 import datetime as dt
 import gzip
-import os
 import pathlib
 import shutil
 import sys
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
-OUT = pathlib.Path("database/sample_data.sql")
+# src/ on the path for db.engine, which is where the connection settings
+# live: pool_pre_ping and pool_recycle, because Neon drops idle connections.
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from db import engine  # noqa: E402
+
+OUT = ROOT / "database" / "sample_data.sql"
 
 FULL = ["territories", "rankings", "trends", "hotspots"]
 WINDOWED = {"alerts_weekly": "week", "rankings_history": "window_end"}
@@ -40,19 +46,6 @@ WINDOWED = {"alerts_weekly": "week", "rankings_history": "window_end"}
 # One statement per chunk: a single INSERT per row would make the file much
 # larger and the import much slower.
 CHUNK = 500
-
-
-def neon_url() -> str:
-    url = os.environ.get("NEON_URL")
-    if url:
-        return url
-    try:
-        for line in open(".env"):
-            if line.startswith("NEON_URL="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except FileNotFoundError:
-        pass
-    raise SystemExit("NEON_URL no esta ni en el entorno ni en .env")
 
 
 def literal(value) -> str:
@@ -99,7 +92,7 @@ def main() -> int:
     args = ap.parse_args()
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    eng = create_engine(neon_url())
+    eng = engine()
 
     with eng.connect() as conn, OUT.open("w", encoding="utf-8") as out:
         out.write(
