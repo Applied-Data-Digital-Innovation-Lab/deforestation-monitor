@@ -13,6 +13,10 @@ There are alerts somewhere in the Amazon almost every day, so listing every terr
 The result is a public web interface with the current ranking, a map, per-territory history, an archive of previous rankings, and a form for recording what was found on the ground.
  
 **Data sources:** [RAISG](https://www.raisg.org/en/maps/) `Tis_TerritoriosIndigenas` (territory boundaries, June 2025) and the [GFW Data API](https://data-api.globalforestwatch.org/) `gfw_integrated_alerts` (daily satellite alerts).
+
+**Built by** Ignacio Morales for the Applied Data & Digital Innovation Lab, Living Stones Foundation.
+
+**Documentation.** `docs/PROJECT_OVERVIEW.md` for the architecture and the decisions behind it, `docs/FUNCTIONALITY.md` for every feature and the rule it applies, `docs/DEPLOYMENT.md` for installing it on cPanel.
  
 ---
  
@@ -83,7 +87,7 @@ Separating fire from clearing was tried and measured too: of 246 hotspots cross-
  
 ## Architecture
  
-The database is the source of truth. The daily pipeline does not depend on anything in `data/`.
+The PostgreSQL database is the source of truth. The daily pipeline does not depend on anything in `data/`.
  
 ```text
 GitHub Actions (daily)
@@ -92,10 +96,15 @@ GitHub Actions (daily)
       ├── detect_anomalies.py   builds the ranking, appends to the archive
       ├── detect_trends.py      fits the rising trajectories
       ├── detect_hotspots.py    locates the loss inside flagged territories
-      └── prune_alerts.py       drops daily rows older than 180 days
+      ├── prune_alerts.py       drops daily rows older than 180 days
+      └── publish.py            writes what the site needs as files
                   │
                   ▼
-              Neon DB  ──────▶  PHP web app
+              Neon DB  ──────▶  GitHub release
+                                      │
+                                      ▼  bin/import.php, once a day
+                                 MySQL  ──────▶  PHP web app
+                                        (cPanel hosting)
 ```
  
 | Table | Rows | What it holds |
@@ -103,11 +112,11 @@ GitHub Actions (daily)
 | `territories` | 3,866 | Name, country, area, population, map point |
 | `geostores` | 3,866 | The GFW ID for each territory |
 | `alerts_daily` | ~209,000 | One row per territory, day and confidence level, last 180 days |
-| `alerts_weekly` | 3,866 a week of history (~858,000) | The weekly series behind the charts, zeros included |
+| `alerts_weekly` | 3,866 a week of history (~870,000) | The weekly series behind the charts, zeros included |
 | `rankings` | 3,866 | The current rolling window |
-| `rankings_history` | ~500,000 | One row per territory per calendar week, where it lost something |
-| `trends` | ~80 | Territories on a rising trajectory |
-| `hotspots` | ~250 | Where inside the flagged territories the loss happened |
+| `rankings_history` | ~516,000 | One row per territory per calendar week, where it lost something |
+| `trends` | 30 to 80 | Territories on a rising trajectory |
+| `hotspots` | ~400 | Where inside the flagged territories the loss happened |
 | `field_reports` | grows | What people found when they went to look |
  
 **Two tables, never one query.** `rankings` holds the rolling seven-day window the site shows. `rankings_history` holds calendar weeks, one row per territory per week, and `window_end` there is always a Sunday. Writing a rolling window into the archive once put six overlapping rows beside every real one, and anything reading a run of windows as a series read the same days over and over. A `UNIQUE` and a `CHECK` in the schema now make that impossible rather than merely unintended.
@@ -122,7 +131,9 @@ GitHub Actions (daily)
  
 ## The web interface
  
-`web/` is a PHP front end over the Neon tables.
+`app/` is a PHP front end over a MySQL database on the hosting.
+
+**That database is a copy.** The pipeline goes on computing in PostgreSQL and publishes the finished figures as files on a GitHub release; `app/bin/import.php` runs from cron once a day and loads them. Nothing on the hosting reaches PostgreSQL, and no Python runs there. A wrong figure on the site is therefore a publishing fault rather than a calculation, which is worth being able to tell apart. `docs/PROJECT_OVERVIEW.md` sets out why it is built that way.
  
 | Page | What it shows |
 |---|---|
@@ -131,7 +142,7 @@ GitHub Actions (daily)
 | `territory.php` | One territory: current figures, where inside it the loss was, its full weekly history, and the field report form |
 | `history.php` | Any past window, the most frequently flagged, and the rising ones |
  
-`data.php` is the only file that knows about the database; everything else calls its functions. `api.php` maps a query string onto them and returns JSON, so the page shell renders immediately while Neon wakes from idle. The site follows the operating system's light or dark setting, with a header button to override it.
+`app/includes/data.php` is the only file that knows about the database; everything else calls its functions. `api.php` maps a query string onto them and returns JSON, so the page shell renders immediately rather than waiting on the queries behind it. The site follows the operating system's light or dark setting, with a header button to override it.
  
 ### Field reports
  
@@ -148,13 +159,15 @@ FROM field_reports WHERE NOT approved ORDER BY submitted_at DESC;
 UPDATE field_reports SET approved = TRUE WHERE id = 1;
 ```
  
-Three defences, cheapest first: a trap field the stylesheet moves off screen, which a bot fills and a person never sees; length and value checks server-side, whatever the form said; and five reports an hour per address, counted inside the same transaction as the insert so concurrent sends cannot slip past it.
+Three defences, cheapest first: a trap field the stylesheet moves off screen, which a bot fills and a person never sees; length and value checks server-side, whatever the form said; and five reports an hour per address, counted under a lock held for the length of the insert, so concurrent sends cannot slip past it. In PostgreSQL that lock was the transaction's and ended with it; MySQL has no such thing, so it is taken and released explicitly.
  
-### Credentials and the web role
- 
-PHP queries Postgres server-side and the client receives names and numbers. The site connects as `web_reader`, which reads what the pipeline publishes and writes nowhere except `field_reports`. The `SELECT` on that table is column-level, so `reporter` never leaves the database and the site cannot publish a name even by mistake.
- 
-The role is defined in `sql/roles.sql`, which takes the password as a psql variable rather than keeping one in the repository. Point the site's `NEON_URL` at that role rather than the owner.
+### Credentials and the database user
+
+PHP queries MySQL server-side and the client receives names and numbers. The connection comes from `app/config/config.php`, which is created on the server from `config.example.php` and is excluded from Git. The user needs `SELECT` on every table and `INSERT` on `field_reports`, and nothing else.
+
+**One protection did not survive the migration.** In PostgreSQL the `SELECT` granted to `web_reader` was column-level, so `reporter` and `source_ip` could not leave the database whatever the application did. cPanel grants privileges per database rather than per column and the account usually cannot issue `GRANT` itself, so on the hosting those two columns are protected only by `app/includes/data.php` never selecting them. That is a weaker guarantee and is recorded as a limitation rather than described as the same one.
+
+`sql/roles.sql` still defines the PostgreSQL role, which the pipeline's own database uses.
 
 ---
  
@@ -206,18 +219,27 @@ python src/detect_anomalies.py
 python src/detect_trends.py
 python src/detect_hotspots.py
 python src/prune_alerts.py
+python src/publish.py
 ```
  
 ### The website
  
-PHP 7.4 or later with the `pdo_pgsql` extension, and `NEON_URL` in the environment with the read-only role. PHP does not read `.env` files on its own, hence the variable on the command line:
- 
+PHP 8.0 or later with the `pdo_mysql` extension, and a MySQL database. Copy `app/config/config.example.php` to `app/config/config.php` and fill it in, then:
+
 ```bash
-cd web
-NEON_URL="$(grep '^NEON_URL=' .env | cut -d= -f2-)" php -S 127.0.0.1:8000
+php -S 127.0.0.1:8000 -t app
 ```
- 
-Without `NEON_URL` the site renders its shell, every panel fails, and the header says so. There is no fallback data source.
+
+To fill a local database from what the pipeline publishes:
+
+```bash
+python src/publish.py                 # writes data/published/
+php app/bin/import.php --url http://localhost:8001
+```
+
+Without `app/config/config.php` the site renders its shell, every panel fails, and the header says so. There is no fallback data source.
+
+`docs/DEPLOYMENT.md` covers installing it on cPanel, including the first load of the full history.
  
 ---
  
@@ -242,13 +264,19 @@ Six things that cost time and are not documented upstream.
 ## Repository layout
  
 ```
+├── app/          the deployable site: pages, api.php, includes/, config/,
+│                 assets/ and bin/import.php. This is what goes on the hosting
+├── database/     schema.sql and sample_data.sql, for the MySQL copy
+├── docs/         PROJECT_OVERVIEW, FUNCTIONALITY and DEPLOYMENT
 ├── src/          the pipeline: territories, geostores, alerts, anomalies,
-│                 trends, hotspots, prune, plus seed_neon, backfill_rankings
-│                 and export_archive
-├── sql/          schema.sql, roles.sql, and constraints.sql for an existing database
+│                 trends, hotspots, prune, publish, plus seed_neon,
+│                 backfill_rankings and export_archive
+├── sql/          schema.sql, roles.sql, and constraints.sql for an existing
+│                 PostgreSQL database
 ├── notebooks/    the analysis behind each decision, 01 to 05
-├── tests/        the weekly aggregation at the retention boundary
-├── web/          the PHP front end
+├── tests/        the weekly aggregation at the retention boundary, a smoke
+│                 test over every query, and the two-backend comparison
+├── tools/        one-off scripts used to carry out the migration
 ├── data/         not committed
 └── .github/workflows/   daily.yml, snapshot.yml and tests.yml
 ```
@@ -269,7 +297,7 @@ Six things that cost time and are not documented upstream.
  
 **The thresholds are choices.** The 90th percentile, the 5 ha floor and the ratio of 2 were tuned against what a small team could realistically act on. They sit as constants at the top of the script so they are easy to revisit.
  
-**Storage.** `alerts_daily` keeps the last 180 days and `src/prune_alerts.py` drops the rest at the end of each daily run, so it stays bounded rather than growing without limit: 51 MB, including the space Postgres holds for reuse after each day's delete and reload. The database is 282 MB of Neon's 512 MB free tier.
+**Storage.** `alerts_daily` keeps the last 180 days and `src/prune_alerts.py` drops the rest at the end of each daily run, so it stays bounded rather than growing without limit: 51 MB, including the space Postgres holds for reuse after each day's delete and reload. The database is 282 MB of Neon's 512 MB free tier. The MySQL copy on the hosting holds the six tables the site reads, without `alerts_daily` or `geostores`, and comes to roughly 350 MB once the full history is loaded.
 
 **No retention policy on the archive, and the arithmetic for when there should be.** What grows is `rankings_history`, 139 MB over 511,270 rows and about 0.8 MB a week, and `alerts_weekly`, 82 MB and about 0.4 MB a week. Together that is roughly 60 MB a year against 230 MB of headroom, so the archive has about three and a half years before the limit and does not need cutting now. Past about 400 MB it would, and the cost is known: `rankings_history` is what draws the per-week baseline band and counts how often a territory has been flagged, so dropping its oldest weeks shortens both of those rather than weakening the screening, which reads its history from `alerts_weekly` instead.
  
@@ -289,7 +317,7 @@ If the account transfer ever fails, a fresh Neon project plus `sql/schema.sql`, 
 
 **Scheduled workflows stop after 60 days without a commit.** GitHub disables them on an inactive repository, with no failure and no notification: the site simply goes on showing the last week it managed to compute. Whoever keeps this running should commit something periodically, or re-enable the workflows from the Actions tab when GitHub emails about it.
 
-**The actions are one major version behind.** `checkout@v4`, `setup-python@v5` and `upload-artifact@v4` run on Node 20, which GitHub has deprecated and is already forcing onto Node 24. A warning today, a failure eventually. Bumping all three is the fix, and it is worth doing when there is time to watch the workflows run.
+**The actions were moved to v7 in November 2026**, off the Node 20 runtime GitHub had deprecated. Worth checking again every so often: a runtime is deprecated every couple of years, and a scheduled workflow that stops for that reason stops quietly.
 
 ### Backups
 
